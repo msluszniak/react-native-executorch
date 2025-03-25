@@ -1,5 +1,7 @@
 name: Check documentation
 
+on: push
+
 jobs:
   check:
     if: github.repository == 'software-mansion/react-native-executorch'
