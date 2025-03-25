@@ -1,12 +1,6 @@
 name: Check documentation
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
   check:
