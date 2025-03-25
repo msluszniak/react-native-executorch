@@ -15,7 +15,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
       - name: Setup Cache
-        working-directory: ${{ env.WORKING_DIRECTORY }}
+        working-directory: ${{ /home/runner/work/react-native-executorch/react-native-executorch }}
         # the mkdir is a workaround to avoid this: https://github.com/actions/setup-node/issues/317
         run: mkdir -p .yarn/cache
       - name: Use Node.js 18
