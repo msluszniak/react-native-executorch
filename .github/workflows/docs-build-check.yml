@@ -25,10 +25,14 @@ jobs:
         with:
           node-version: 18
           cache: 'yarn'
-      - name: Install node dependencies
+      - name: Configure Yarn cache directory
+        run: yarn config set cacheFolder .yarn/cache
+      - name: Create cache directory
         working-directory: ${{ env.WORKING_DIRECTORY }}
         # the mkdir is a workaround to avoid this: https://github.com/actions/setup-node/issues/317
-        run: mkdir -p .yarn/cache && yarn
+        run: mkdir -p .yarn/cache
+      - name: Install Dependencies
+        run: yarn install
       - name: Generate docs
         working-directory: ${{ env.WORKING_DIRECTORY }}
         run: yarn build
