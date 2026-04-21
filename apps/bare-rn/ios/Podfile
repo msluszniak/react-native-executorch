@@ -30,5 +30,18 @@ target 'bare-rn' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    # Test-branch workaround for Xcode 26.4 + Apple clang 21 consteval strictness
+    # breaking fmt in RCT-Folly (facebook/react-native#55601). Forces fmt/RCT-Folly
+    # to compile as C++17 where __cpp_consteval is undefined, so fmt's header
+    # selects the non-consteval path. Remove once the upstream RN fix lands.
+    installer.pods_project.targets.each do |target|
+      if target.name == 'fmt' || target.name == 'RCT-Folly'
+        target.build_configurations.each do |config|
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FMT_USE_CONSTEVAL=0'
+        end
+      end
+    end
   end
 end
