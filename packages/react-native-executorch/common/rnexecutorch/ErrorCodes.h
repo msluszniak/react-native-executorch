@@ -81,6 +81,10 @@ enum class RnExecutorchErrorCode : int32_t {
    */
   UnexpectedNumInputs = 121,
   /**
+   * Thrown when an error occurs with the tokenizer or tokenization process.
+   */
+  TokenizerError = 122,
+  /**
    * Thrown when there's a configuration mismatch between multilingual and
    * language settings in Speech-to-Text models.
    */
@@ -100,10 +104,6 @@ enum class RnExecutorchErrorCode : int32_t {
    * already in progress.
    */
   StreamingInProgress = 163,
-  /**
-   * Thrown when an error occurs with the tokenizer or tokenization process.
-   */
-  TokenizerError = 167,
   /**
    * Thrown when a resource fails to download. This could be due to invalid URL,
    * or for example a network problem.

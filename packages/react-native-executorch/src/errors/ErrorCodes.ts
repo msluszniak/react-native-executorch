@@ -63,6 +63,10 @@ export enum RnExecutorchErrorCode {
    */
   UnexpectedNumInputs = 121,
   /**
+   * Thrown when an error occurs with the tokenizer or tokenization process.
+   */
+  TokenizerError = 122,
+  /**
    * Thrown when there's a configuration mismatch between multilingual and language settings in Speech-to-Text models.
    */
   MultilingualConfiguration = 160,
@@ -78,10 +82,6 @@ export enum RnExecutorchErrorCode {
    * Thrown when trying to start a new streaming session while another is already in progress.
    */
   StreamingInProgress = 163,
-  /**
-   * Thrown when an error occurs with the tokenizer or tokenization process.
-   */
-  TokenizerError = 167,
   /**
    * Thrown when a resource fails to download. This could be due to invalid URL, or for example a network problem.
    */

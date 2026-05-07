@@ -65,6 +65,10 @@ export const errorDefinitions = {
    * Thrown when the number of passed inputs to the model is different than the model metadata specifies.
    */
   UnexpectedNumInputs: 0x79,
+  /*
+   * Thrown when an error occurs with the tokenizer or tokenization process.
+   */
+  TokenizerError: 0x7a,
 
   // =========================================================================
   // Speech to Text errors (0xa0–0xaf)
@@ -85,10 +89,6 @@ export const errorDefinitions = {
    * Thrown when trying to start a new streaming session while another is already in progress.
    */
   StreamingInProgress: 0xa3,
-  /*
-   * Thrown when an error occurs with the tokenizer or tokenization process.
-   */
-  TokenizerError: 0xa7,
 
   // =========================================================================
   // Resource Fetcher errors (0xb0–0xbf)
