@@ -1,4 +1,6 @@
 #include "RecognitionHandler.h"
+#include <algorithm>
+#include <limits>
 #include <rnexecutorch/data_processing/ImageProcessing.h>
 #include <rnexecutorch/models/ocr/Constants.h>
 #include <rnexecutorch/models/ocr/utils/RecognitionHandlerUtils.h>
@@ -55,14 +57,24 @@ void RecognitionHandler::processBBox(std::vector<types::OCRDetection> &boxList,
   /*
     Since the boxes were corresponding to the image resized to 1280x1280,
     we want to return the boxes shifted and rescaled to match the original
-    image dimensions.
+    image dimensions. Compute the axis-aligned bounding box (AABB) from the
+    four rotated corners and store only the top-left and bottom-right points.
   */
-  for (auto &point : box.bbox) {
-    point.x = (point.x - ratioAndPadding.left) * ratioAndPadding.resizeRatio;
-    point.y = (point.y - ratioAndPadding.top) * ratioAndPadding.resizeRatio;
+  float minX = std::numeric_limits<float>::max();
+  float minY = std::numeric_limits<float>::max();
+  float maxX = std::numeric_limits<float>::lowest();
+  float maxY = std::numeric_limits<float>::lowest();
+  for (const auto &point : box.bbox) {
+    float x = (point.x - ratioAndPadding.left) * ratioAndPadding.resizeRatio;
+    float y = (point.y - ratioAndPadding.top) * ratioAndPadding.resizeRatio;
+    minX = std::min(minX, x);
+    minY = std::min(minY, y);
+    maxX = std::max(maxX, x);
+    maxY = std::max(maxY, y);
   }
   boxList.emplace_back(
-      box.bbox,
+      std::array<types::Point, 2>{types::Point{minX, minY},
+                                  types::Point{maxX, maxY}},
       converter.decodeGreedy(predictionIndices, predictionIndices.size())[0],
       confidenceScore);
 }

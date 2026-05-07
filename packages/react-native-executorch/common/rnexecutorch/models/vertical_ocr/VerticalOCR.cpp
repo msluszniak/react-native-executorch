@@ -1,4 +1,6 @@
 #include "VerticalOCR.h"
+#include <algorithm>
+#include <limits>
 #include <rnexecutorch/Error.h>
 #include <rnexecutorch/ErrorCodes.h>
 #include <rnexecutorch/data_processing/ImageProcessing.h>
@@ -73,6 +75,13 @@ VerticalOCR::generateFromFrame(jsi::Runtime &runtime,
   for (auto &det : detections) {
     ::rnexecutorch::utils::inverseRotatePoints(det.bbox, orient,
                                                rotated.size());
+    // Re-normalize to a proper AABB after the coordinate rotation.
+    float minX = std::min(det.bbox[0].x, det.bbox[1].x);
+    float minY = std::min(det.bbox[0].y, det.bbox[1].y);
+    float maxX = std::max(det.bbox[0].x, det.bbox[1].x);
+    float maxY = std::max(det.bbox[0].y, det.bbox[1].y);
+    det.bbox[0] = {minX, minY};
+    det.bbox[1] = {maxX, maxY};
   }
   return detections;
 }
@@ -204,16 +213,24 @@ types::OCRDetection VerticalOCR::_processSingleTextBox(
             : _handleJointCharacters(box, originalImage, characterBoxes,
                                      paddingsBox, imagePaddings);
   }
-  // Modify the returned boxes to match the original image size
-  std::array<types::Point, 4> finalBbox;
+  // Modify the returned boxes to match the original image size. Compute the
+  // axis-aligned bounding box (AABB) from the four rotated corners and store
+  // only the top-left and bottom-right points.
+  float minX = std::numeric_limits<float>::max();
+  float minY = std::numeric_limits<float>::max();
+  float maxX = std::numeric_limits<float>::lowest();
+  float maxY = std::numeric_limits<float>::lowest();
   for (size_t i = 0; i < box.bbox.size(); ++i) {
-    finalBbox[i].x =
-        (box.bbox[i].x - imagePaddings.left) * imagePaddings.resizeRatio;
-    finalBbox[i].y =
-        (box.bbox[i].y - imagePaddings.top) * imagePaddings.resizeRatio;
+    float x = (box.bbox[i].x - imagePaddings.left) * imagePaddings.resizeRatio;
+    float y = (box.bbox[i].y - imagePaddings.top) * imagePaddings.resizeRatio;
+    minX = std::min(minX, x);
+    minY = std::min(minY, y);
+    maxX = std::max(maxX, x);
+    maxY = std::max(maxY, y);
   }
 
-  return {finalBbox, text, confidenceScore};
+  return {{types::Point{minX, minY}, types::Point{maxX, maxY}}, text,
+          confidenceScore};
 }
 
 void VerticalOCR::unload() noexcept {
