@@ -76,6 +76,8 @@ export const useModule = <
 
     return () => {
       isMounted = false;
+      setIsReady(false);
+      setRunOnFrame(null);
       moduleInstance.delete();
     };
 
@@ -133,7 +135,6 @@ export const useModule = <
      *
      * **Use this for VisionCamera frame processing in worklets.**
      * For async processing, use `forward()` instead.
-     *
      * @example
      * ```typescript
      * const { runOnFrame } = useObjectDetection({ model: MODEL });

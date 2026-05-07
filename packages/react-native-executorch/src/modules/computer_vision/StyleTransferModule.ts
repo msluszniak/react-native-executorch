@@ -1,31 +1,37 @@
 import { ResourceFetcher } from '../../utils/ResourceFetcher';
-import { ResourceSource } from '../../types/common';
-import { RnExecutorchErrorCode } from '../../errors/ErrorCodes';
+import { StyleTransferModelName } from '../../types/styleTransfer';
+import { ResourceSource, PixelData } from '../../types/common';
 import { parseUnknownError, RnExecutorchError } from '../../errors/errorUtils';
-import { BaseModule } from '../BaseModule';
+import { RnExecutorchErrorCode } from '../../errors/ErrorCodes';
 import { Logger } from '../../common/Logger';
+import { VisionModule } from './VisionModule';
 
 /**
  * Module for style transfer tasks.
- *
  * @category Typescript API
  */
-export class StyleTransferModule extends BaseModule {
+export class StyleTransferModule extends VisionModule<PixelData | string> {
+  private constructor(nativeModule: unknown) {
+    super();
+    this.nativeModule = nativeModule;
+  }
   /**
-   * Loads the model, where `modelSource` is a string that specifies the location of the model binary.
-   * To track the download progress, supply a callback function `onDownloadProgressCallback`.
-   *
-   * @param model - Object containing `modelSource`.
-   * @param onDownloadProgressCallback - Optional callback to monitor download progress.
+   * Creates a style transfer instance for a built-in model.
+   * @param namedSources - An object specifying which built-in model to load and where to fetch it from.
+   * @param onDownloadProgress - Optional callback to monitor download progress, receiving a value between 0 and 1.
+   * @returns A Promise resolving to a `StyleTransferModule` instance.
    */
-  async load(
-    model: { modelSource: ResourceSource },
-    onDownloadProgressCallback: (progress: number) => void = () => {}
-  ): Promise<void> {
+  static async fromModelName(
+    namedSources: {
+      modelName: StyleTransferModelName;
+      modelSource: ResourceSource;
+    },
+    onDownloadProgress: (progress: number) => void = () => {}
+  ): Promise<StyleTransferModule> {
     try {
       const paths = await ResourceFetcher.fetch(
-        onDownloadProgressCallback,
-        model.modelSource
+        onDownloadProgress,
+        namedSources.modelSource
       );
 
       if (!paths?.[0]) {
@@ -35,7 +41,7 @@ export class StyleTransferModule extends BaseModule {
         );
       }
 
-      this.nativeModule = global.loadStyleTransfer(paths[0]);
+      return new StyleTransferModule(await global.loadStyleTransfer(paths[0]));
     } catch (error) {
       Logger.error('Load failed:', error);
       throw parseUnknownError(error);
@@ -43,17 +49,30 @@ export class StyleTransferModule extends BaseModule {
   }
 
   /**
-   * Executes the model's forward pass, where `imageSource` can be a fetchable resource or a Base64-encoded string.
-   *
-   * @param imageSource - The image source to be processed.
-   * @returns The stylized image as a Base64-encoded string.
+   * Creates a style transfer instance with a user-provided model binary.
+   * Use this when working with a custom-exported model that is not one of the built-in presets.
+   * @remarks The native model contract for this method is not formally defined and may change
+   * between releases. Refer to the native source code for the current expected tensor interface.
+   * @param modelSource - A fetchable resource pointing to the model binary.
+   * @param onDownloadProgress - Optional callback to monitor download progress, receiving a value between 0 and 1.
+   * @returns A Promise resolving to a `StyleTransferModule` instance.
    */
-  async forward(imageSource: string): Promise<string> {
-    if (this.nativeModule == null)
-      throw new RnExecutorchError(
-        RnExecutorchErrorCode.ModuleNotLoaded,
-        'The model is currently not loaded. Please load the model before calling forward().'
-      );
-    return await this.nativeModule.generate(imageSource);
+  static fromCustomModel(
+    modelSource: ResourceSource,
+    onDownloadProgress: (progress: number) => void = () => {}
+  ): Promise<StyleTransferModule> {
+    return StyleTransferModule.fromModelName(
+      { modelName: 'custom' as StyleTransferModelName, modelSource },
+      onDownloadProgress
+    );
+  }
+
+  async forward<O extends 'pixelData' | 'url' = 'pixelData'>(
+    input: string | PixelData,
+    outputType?: O
+  ): Promise<O extends 'url' ? string : PixelData> {
+    return super.forward(input, outputType === 'url') as Promise<
+      O extends 'url' ? string : PixelData
+    >;
   }
 }

@@ -9,18 +9,22 @@
     ]
   },
   "scripts": {
+    "prepare": "yarn workspaces foreach --all --topological-dev run prepare",
     "lint": "yarn workspaces foreach --all --parallel run lint",
     "typecheck": "yarn workspaces foreach --all --parallel run typecheck",
     "codegen:errors": "npx ts-node scripts/generate-errors.ts"
   },
   "private": true,
   "devDependencies": {
+    "@babel/core": "^7.25.1",
+    "@babel/eslint-parser": "^7.25.1",
     "@cspell/eslint-plugin": "^8.19.0",
     "@evilmartians/lefthook": "^2.1.1",
     "@react-native/eslint-config": "^0.79.0",
     "cspell": "^8.19.0",
     "eslint": "^8.57.0",
     "eslint-plugin-ft-flow": "^2.0.3",
+    "eslint-plugin-jsdoc": "^62.7.1",
     "eslint-plugin-markdown": "^5.1.0",
     "eslint-plugin-prettier": "^5.0.1",
     "expo-router": "~6.0.17",

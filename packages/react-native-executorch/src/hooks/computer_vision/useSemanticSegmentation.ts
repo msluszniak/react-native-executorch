@@ -1,3 +1,4 @@
+import { PixelData } from '../..';
 import {
   SemanticSegmentationModule,
   SegmentationLabels,
@@ -12,18 +13,15 @@ import { useModuleFactory } from '../useModuleFactory';
 
 /**
  * React hook for managing a Semantic Segmentation model instance.
- *
  * @typeParam C - A {@link SemanticSegmentationModelSources} config specifying which built-in model to load.
  * @param props - Configuration object containing `model` config and optional `preventLoad` flag.
  * @returns An object with model state (`error`, `isReady`, `isGenerating`, `downloadProgress`) and a typed `forward` function.
- *
  * @example
  * ```ts
  * const { isReady, forward } = useSemanticSegmentation({
- *   model: { modelName: 'deeplab-v3', modelSource: DEEPLAB_V3_RESNET50 },
+ *   model: { modelName: 'deeplab-v3-resnet50', modelSource: DEEPLAB_V3_RESNET50 },
  * });
  * ```
- *
  * @category Hooks
  */
 export const useSemanticSegmentation = <
@@ -34,16 +32,23 @@ export const useSemanticSegmentation = <
 }: SemanticSegmentationProps<C>): SemanticSegmentationType<
   SegmentationLabels<ModelNameOf<C>>
 > => {
-  const { error, isReady, isGenerating, downloadProgress, runForward } =
-    useModuleFactory({
-      factory: (config, onProgress) =>
-        SemanticSegmentationModule.fromModelName(config, onProgress),
-      config: model,
-      preventLoad,
-    });
+  const {
+    error,
+    isReady,
+    isGenerating,
+    downloadProgress,
+    runForward,
+    runOnFrame,
+  } = useModuleFactory({
+    factory: (config, onProgress) =>
+      SemanticSegmentationModule.fromModelName(config, onProgress),
+    config: model,
+    deps: [model.modelName, model.modelSource],
+    preventLoad,
+  });
 
   const forward = <K extends keyof SegmentationLabels<ModelNameOf<C>>>(
-    imageSource: string,
+    imageSource: string | PixelData,
     classesOfInterest: K[] = [],
     resizeToInput: boolean = true
   ) =>
@@ -51,5 +56,12 @@ export const useSemanticSegmentation = <
       inst.forward(imageSource, classesOfInterest, resizeToInput)
     );
 
-  return { error, isReady, isGenerating, downloadProgress, forward };
+  return {
+    error,
+    isReady,
+    isGenerating,
+    downloadProgress,
+    forward,
+    runOnFrame,
+  };
 };

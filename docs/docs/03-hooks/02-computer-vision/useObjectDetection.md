@@ -4,7 +4,7 @@ title: useObjectDetection
 
 Object detection is a computer vision technique that identifies and locates objects within images. Unlike image classification, which assigns a single label to the whole image, object detection returns a list of detected objects — each with a bounding box, a class label, and a confidence score. React Native ExecuTorch offers a dedicated hook `useObjectDetection` for this task.
 
-:::warning
+:::info
 It is recommended to use models provided by us, which are available at our [Hugging Face repository](https://huggingface.co/collections/software-mansion/object-detection-68d0ea936cd0906843cbba7d). You can also use [constants](https://github.com/software-mansion/react-native-executorch/blob/main/packages/react-native-executorch/src/constants/modelUrls.ts) shipped with our library.
 :::
 
@@ -61,13 +61,19 @@ You need more details? Check the following resources:
 - `error` - An error object if the model failed to load or encountered a runtime error.
 - `downloadProgress` - A value between 0 and 1 representing the download progress of the model binary.
 - `forward` - A function to run inference on an image.
+- `getAvailableInputSizes` - A function that returns available input sizes for multi-method models (YOLO). Returns `undefined` for single-method models.
+- `runOnFrame` - A synchronous worklet function for real-time VisionCamera frame processing. See [VisionCamera Integration](./visioncamera-integration.md) for usage.
 
 ## Running the model
 
 To run the model, use the [`forward`](../../06-api-reference/interfaces/ObjectDetectionType.md#forward) method. It accepts two arguments:
 
-- `imageSource` (required) - The image to process. Can be a remote URL, a local file URI, or a base64-encoded image (whole URI or only raw base64).
-- `detectionThreshold` (optional) - A number between 0 and 1 representing the minimum confidence score for a detection to be included in the results. Defaults to `0.7`.
+- `input` (required) - The image to process. Can be a remote URL, a local file URI, a base64-encoded image (whole URI or only raw base64), or a [`PixelData`](../../06-api-reference/interfaces/PixelData.md) object (raw RGB pixel buffer).
+- `options` (optional) - An [`ObjectDetectionOptions`](../../06-api-reference/interfaces/ObjectDetectionOptions.md) object with the following properties:
+  - `detectionThreshold` (optional) - A number between 0 and 1 representing the minimum confidence score. Defaults to model-specific value (typically `0.7`).
+  - `iouThreshold` (optional) - IoU threshold for non-maximum suppression (0-1). Defaults to model-specific value (typically `0.55`).
+  - `inputSize` (optional) - For multi-method models like YOLO, specify the input resolution (`384`, `512`, or `640`). Defaults to `384` for YOLO models.
+  - `classesOfInterest` (optional) - Array of class labels to filter detections. Only detections matching these classes will be returned.
 
 `forward` returns a promise resolving to an array of [`Detection`](../../06-api-reference/interfaces/Detection.md) objects, each containing:
 
@@ -78,11 +84,11 @@ To run the model, use the [`forward`](../../06-api-reference/interfaces/ObjectDe
 ## Example
 
 ```typescript
-import { useObjectDetection, RF_DETR_NANO } from 'react-native-executorch';
+import { useObjectDetection, YOLO26N } from 'react-native-executorch';
 
 function App() {
   const model = useObjectDetection({
-    model: RF_DETR_NANO,
+    model: YOLO26N,
   });
 
   const handleDetect = async () => {
@@ -91,13 +97,12 @@ function App() {
     const imageUri = 'file:///Users/.../photo.jpg';
 
     try {
-      const detections = await model.forward(imageUri, 0.5);
+      const detections = await model.forward(imageUri, {
+        detectionThreshold: 0.5,
+        inputSize: 640,
+      });
 
-      for (const detection of detections) {
-        console.log('Label:', detection.label);
-        console.log('Score:', detection.score);
-        console.log('Bounding box:', detection.bbox);
-      }
+      console.log('Detected:', detections.length, 'objects');
     } catch (error) {
       console.error(error);
     }
@@ -107,9 +112,22 @@ function App() {
 }
 ```
 
+## VisionCamera integration
+
+See the full guide: [VisionCamera Integration](./visioncamera-integration.md).
+
 ## Supported models
 
-| Model                                                                                                                         | Number of classes | Class list                                               |
-| ----------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------- |
-| [SSDLite320 MobileNetV3 Large](https://huggingface.co/software-mansion/react-native-executorch-ssdlite320-mobilenet-v3-large) | 91                | [COCO](../../06-api-reference/enumerations/CocoLabel.md) |
-| [RF-DETR Nano](https://huggingface.co/software-mansion/react-native-executorch-rf-detr-nano)                                  | 80                | [COCO](../../06-api-reference/enumerations/CocoLabel.md) |
+| Model                                                                                                                         | Number of classes | Class list                                                    | Multi-size Support  |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------- | ------------------- |
+| [SSDLite320 MobileNetV3 Large](https://huggingface.co/software-mansion/react-native-executorch-ssdlite320-mobilenet-v3-large) | 91                | [COCO](../../06-api-reference/enumerations/CocoLabel.md)      | No (fixed: 320×320) |
+| [RF-DETR Nano](https://huggingface.co/software-mansion/react-native-executorch-rf-detr-nano)                                  | 80                | [COCO](../../06-api-reference/enumerations/CocoLabel.md)      | No (fixed: 384×384) |
+| [YOLO26N](https://huggingface.co/software-mansion/react-native-executorch-yolo26)                                             | 80                | [COCO YOLO](../../06-api-reference/enumerations/CocoLabel.md) | Yes (384/512/640)   |
+| [YOLO26S](https://huggingface.co/software-mansion/react-native-executorch-yolo26)                                             | 80                | [COCO YOLO](../../06-api-reference/enumerations/CocoLabel.md) | Yes (384/512/640)   |
+| [YOLO26M](https://huggingface.co/software-mansion/react-native-executorch-yolo26)                                             | 80                | [COCO YOLO](../../06-api-reference/enumerations/CocoLabel.md) | Yes (384/512/640)   |
+| [YOLO26L](https://huggingface.co/software-mansion/react-native-executorch-yolo26)                                             | 80                | [COCO YOLO](../../06-api-reference/enumerations/CocoLabel.md) | Yes (384/512/640)   |
+| [YOLO26X](https://huggingface.co/software-mansion/react-native-executorch-yolo26)                                             | 80                | [COCO YOLO](../../06-api-reference/enumerations/CocoLabel.md) | Yes (384/512/640)   |
+
+:::tip
+YOLO models support multiple input sizes (384px, 512px, 640px). Smaller sizes are faster but less accurate, while larger sizes are more accurate but slower. Choose based on your speed/accuracy requirements.
+:::

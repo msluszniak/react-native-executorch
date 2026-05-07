@@ -6,6 +6,7 @@
 #include <span>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include <executorch/runtime/core/exec_aten/util/scalar_type_util.h>
@@ -15,13 +16,20 @@
 #include <rnexecutorch/jsi/OwningArrayBuffer.h>
 
 #include <rnexecutorch/metaprogramming/TypeConcepts.h>
+#include <rnexecutorch/models/instance_segmentation/Types.h>
+#include <rnexecutorch/models/object_detection/Constants.h>
 #include <rnexecutorch/models/object_detection/Types.h>
 #include <rnexecutorch/models/ocr/Types.h>
-#include <rnexecutorch/models/speech_to_text/types/Segment.h>
-#include <rnexecutorch/models/speech_to_text/types/TranscriptionResult.h>
+#include <rnexecutorch/models/pose_estimation/Types.h>
+#include <rnexecutorch/models/privacy_filter/Types.h>
+#include <rnexecutorch/models/semantic_segmentation/Types.h>
+#include <rnexecutorch/models/speech_to_text/common/types/Segment.h>
+#include <rnexecutorch/models/speech_to_text/common/types/TranscriptionResult.h>
+#include <rnexecutorch/models/style_transfer/Types.h>
 #include <rnexecutorch/models/voice_activity_detection/Types.h>
+#include <rnexecutorch/utils/computer_vision/Types.h>
 
-using namespace rnexecutorch::models::speech_to_text::types;
+using namespace rnexecutorch::models::speech_to_text;
 
 namespace rnexecutorch::jsi_conversion {
 
@@ -354,6 +362,30 @@ inline jsi::Value getJsiValue(const std::vector<int64_t> &vec,
   return {runtime, array};
 }
 
+inline jsi::Value getJsiValue(
+    const rnexecutorch::models::pose_estimation::PersonKeypoints &keypoints,
+    jsi::Runtime &runtime) {
+  jsi::Array array(runtime, keypoints.size());
+  for (size_t i = 0; i < keypoints.size(); ++i) {
+    jsi::Object point(runtime);
+    point.setProperty(runtime, "x", keypoints[i].x);
+    point.setProperty(runtime, "y", keypoints[i].y);
+    array.setValueAtIndex(runtime, i, point);
+  }
+  return array;
+}
+
+// Pose estimation: all detected people (vector of person keypoints)
+inline jsi::Value getJsiValue(
+    const rnexecutorch::models::pose_estimation::PoseDetections &detections,
+    jsi::Runtime &runtime) {
+  jsi::Array array(runtime, detections.size());
+  for (size_t i = 0; i < detections.size(); ++i) {
+    array.setValueAtIndex(runtime, i, getJsiValue(detections[i], runtime));
+  }
+  return array;
+}
+
 // Conditional as on android, size_t and uint64_t reduce to the same type,
 // introducing ambiguity
 template <typename T,
@@ -427,24 +459,60 @@ getJsiValue(const std::unordered_map<std::string_view, float> &map,
   return mapObj;
 }
 
+inline jsi::Value getJsiValue(const utils::computer_vision::BBox &bbox,
+                              jsi::Runtime &runtime) {
+  jsi::Object obj(runtime);
+  obj.setProperty(runtime, "x1", bbox.x1);
+  obj.setProperty(runtime, "y1", bbox.y1);
+  obj.setProperty(runtime, "x2", bbox.x2);
+  obj.setProperty(runtime, "y2", bbox.y2);
+  return obj;
+}
+
 inline jsi::Value getJsiValue(
     const std::vector<models::object_detection::types::Detection> &detections,
     jsi::Runtime &runtime) {
   jsi::Array array(runtime, detections.size());
   for (std::size_t i = 0; i < detections.size(); ++i) {
     jsi::Object detection(runtime);
-    jsi::Object bbox(runtime);
-    bbox.setProperty(runtime, "x1", detections[i].x1);
-    bbox.setProperty(runtime, "y1", detections[i].y1);
-    bbox.setProperty(runtime, "x2", detections[i].x2);
-    bbox.setProperty(runtime, "y2", detections[i].y2);
-
-    detection.setProperty(runtime, "bbox", bbox);
+    detection.setProperty(runtime, "bbox",
+                          getJsiValue(detections[i].bbox, runtime));
     detection.setProperty(
         runtime, "label",
         jsi::String::createFromUtf8(runtime, detections[i].label));
     detection.setProperty(runtime, "score", detections[i].score);
     array.setValueAtIndex(runtime, i, detection);
+  }
+  return array;
+}
+
+inline jsi::Value
+getJsiValue(const std::vector<models::instance_segmentation::types::Instance>
+                &instances,
+            jsi::Runtime &runtime) {
+  jsi::Array array(runtime, instances.size());
+  for (std::size_t i = 0; i < instances.size(); ++i) {
+    jsi::Object instance(runtime);
+
+    instance.setProperty(runtime, "bbox",
+                         getJsiValue(instances[i].bbox, runtime));
+
+    // Mask as Uint8Array - reuse existing OwningArrayBuffer
+    jsi::ArrayBuffer arrayBuffer(runtime, instances[i].mask);
+    auto uint8ArrayCtor =
+        runtime.global().getPropertyAsFunction(runtime, "Uint8Array");
+    auto uint8Array = uint8ArrayCtor.callAsConstructor(runtime, arrayBuffer)
+                          .getObject(runtime);
+    instance.setProperty(runtime, "mask", uint8Array);
+
+    instance.setProperty(runtime, "maskWidth", instances[i].maskWidth);
+    instance.setProperty(runtime, "maskHeight", instances[i].maskHeight);
+
+    instance.setProperty(runtime, "classIndex", instances[i].classIndex);
+
+    instance.setProperty(runtime, "score", instances[i].score);
+
+    array.setValueAtIndex(runtime, i, instance);
   }
   return array;
 }
@@ -493,6 +561,24 @@ getJsiValue(const std::vector<models::voice_activity_detection::types::Segment>
   return jsiSegments;
 }
 
+inline jsi::Value getJsiValue(
+    const std::vector<models::privacy_filter::types::PiiEntity> &entities,
+    jsi::Runtime &runtime) {
+  auto jsiEntities = jsi::Array(runtime, entities.size());
+  for (size_t i = 0; i < entities.size(); i++) {
+    const auto &e = entities[i];
+    auto obj = jsi::Object(runtime);
+    obj.setProperty(runtime, "label",
+                    jsi::String::createFromUtf8(runtime, e.label));
+    obj.setProperty(runtime, "text",
+                    jsi::String::createFromUtf8(runtime, e.text));
+    obj.setProperty(runtime, "startToken", e.startToken);
+    obj.setProperty(runtime, "endToken", e.endToken);
+    jsiEntities.setValueAtIndex(runtime, i, obj);
+  }
+  return jsiEntities;
+}
+
 inline jsi::Value getJsiValue(const Segment &seg, jsi::Runtime &runtime) {
   jsi::Object obj(runtime);
   obj.setProperty(runtime, "start", seg.start);
@@ -513,7 +599,8 @@ inline jsi::Value getJsiValue(const Segment &seg, jsi::Runtime &runtime) {
     jsi::Object wordObj(runtime);
     wordObj.setProperty(
         runtime, "word",
-        jsi::String::createFromUtf8(runtime, seg.words[i].content));
+        jsi::String::createFromUtf8(runtime, seg.words[i].content +
+                                                 seg.words[i].punctations));
     wordObj.setProperty(runtime, "start",
                         static_cast<double>(seg.words[i].start));
     wordObj.setProperty(runtime, "end", static_cast<double>(seg.words[i].end));
@@ -556,4 +643,63 @@ inline jsi::Value getJsiValue(const TranscriptionResult &result,
 
   return obj;
 }
+inline jsi::Value
+getJsiValue(const models::style_transfer::PixelDataResult &result,
+            jsi::Runtime &runtime) {
+  jsi::Object obj(runtime);
+
+  auto arrayBuffer = jsi::ArrayBuffer(runtime, result.dataPtr);
+  auto uint8ArrayCtor =
+      runtime.global().getPropertyAsFunction(runtime, "Uint8Array");
+  auto uint8Array =
+      uint8ArrayCtor.callAsConstructor(runtime, arrayBuffer).getObject(runtime);
+  obj.setProperty(runtime, "dataPtr", uint8Array);
+
+  auto sizesArray = jsi::Array(runtime, 3);
+  sizesArray.setValueAtIndex(runtime, 0, jsi::Value(result.height));
+  sizesArray.setValueAtIndex(runtime, 1, jsi::Value(result.width));
+  sizesArray.setValueAtIndex(runtime, 2, jsi::Value(result.channels));
+  obj.setProperty(runtime, "sizes", sizesArray);
+
+  obj.setProperty(runtime, "scalarType",
+                  jsi::Value(static_cast<int32_t>(ScalarType::Byte)));
+
+  return obj;
+}
+
+inline jsi::Value getJsiValue(
+    const rnexecutorch::models::semantic_segmentation::SegmentationResult
+        &result,
+    jsi::Runtime &runtime) {
+  jsi::Object dict(runtime);
+
+  auto argmaxArrayBuffer = jsi::ArrayBuffer(runtime, result.argmax);
+  auto int32ArrayCtor =
+      runtime.global().getPropertyAsFunction(runtime, "Int32Array");
+  auto int32Array = int32ArrayCtor.callAsConstructor(runtime, argmaxArrayBuffer)
+                        .getObject(runtime);
+  dict.setProperty(runtime, "ARGMAX", int32Array);
+
+  for (auto &[classLabel, owningBuffer] : *result.classBuffers) {
+    auto classArrayBuffer = jsi::ArrayBuffer(runtime, owningBuffer);
+    auto float32ArrayCtor =
+        runtime.global().getPropertyAsFunction(runtime, "Float32Array");
+    auto float32Array =
+        float32ArrayCtor.callAsConstructor(runtime, classArrayBuffer)
+            .getObject(runtime);
+    dict.setProperty(runtime, jsi::String::createFromAscii(runtime, classLabel),
+                     float32Array);
+  }
+
+  return dict;
+}
+
+inline jsi::Value
+getJsiValue(const models::style_transfer::StyleTransferResult &result,
+            jsi::Runtime &runtime) {
+  return std::visit(
+      [&runtime](const auto &value) { return getJsiValue(value, runtime); },
+      result);
+}
+
 } // namespace rnexecutorch::jsi_conversion

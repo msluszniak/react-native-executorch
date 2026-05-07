@@ -5,9 +5,12 @@
 #include <rnexecutorch/models/classification/Classification.h>
 #include <rnexecutorch/models/embeddings/image/ImageEmbeddings.h>
 #include <rnexecutorch/models/embeddings/text/TextEmbeddings.h>
+#include <rnexecutorch/models/instance_segmentation/BaseInstanceSegmentation.h>
 #include <rnexecutorch/models/llm/LLM.h>
 #include <rnexecutorch/models/object_detection/ObjectDetection.h>
 #include <rnexecutorch/models/ocr/OCR.h>
+#include <rnexecutorch/models/pose_estimation/PoseEstimation.h>
+#include <rnexecutorch/models/privacy_filter/PrivacyFilter.h>
 #include <rnexecutorch/models/semantic_segmentation/BaseSemanticSegmentation.h>
 #include <rnexecutorch/models/speech_to_text/SpeechToText.h>
 #include <rnexecutorch/models/style_transfer/StyleTransfer.h>
@@ -33,8 +36,11 @@ FetchUrlFunc_t fetchUrlFunc;
 
 void RnExecutorchInstaller::injectJSIBindings(
     jsi::Runtime *jsiRuntime, std::shared_ptr<react::CallInvoker> jsCallInvoker,
-    FetchUrlFunc_t fetchDataFromUrl) {
+    FetchUrlFunc_t fetchDataFromUrl, bool isEmulator) {
   fetchUrlFunc = fetchDataFromUrl;
+
+  jsiRuntime->global().setProperty(*jsiRuntime, "__rne_isEmulator",
+                                   jsi::Value(isEmulator));
 
   jsiRuntime->global().setProperty(
       *jsiRuntime, "loadStyleTransfer",
@@ -46,6 +52,12 @@ void RnExecutorchInstaller::injectJSIBindings(
       RnExecutorchInstaller::loadModel<
           models::semantic_segmentation::BaseSemanticSegmentation>(
           jsiRuntime, jsCallInvoker, "loadSemanticSegmentation"));
+
+  jsiRuntime->global().setProperty(
+      *jsiRuntime, "loadInstanceSegmentation",
+      RnExecutorchInstaller::loadModel<
+          models::instance_segmentation::BaseInstanceSegmentation>(
+          jsiRuntime, jsCallInvoker, "loadInstanceSegmentation"));
 
   jsiRuntime->global().setProperty(
       *jsiRuntime, "loadTextToImage",
@@ -62,6 +74,11 @@ void RnExecutorchInstaller::injectJSIBindings(
       RnExecutorchInstaller::loadModel<
           models::object_detection::ObjectDetection>(jsiRuntime, jsCallInvoker,
                                                      "loadObjectDetection"));
+
+  jsiRuntime->global().setProperty(
+      *jsiRuntime, "loadPoseEstimation",
+      RnExecutorchInstaller::loadModel<models::pose_estimation::PoseEstimation>(
+          jsiRuntime, jsCallInvoker, "loadPoseEstimation"));
 
   jsiRuntime->global().setProperty(
       *jsiRuntime, "loadExecutorchModule",
@@ -87,6 +104,11 @@ void RnExecutorchInstaller::injectJSIBindings(
       *jsiRuntime, "loadLLM",
       RnExecutorchInstaller::loadModel<models::llm::LLM>(
           jsiRuntime, jsCallInvoker, "loadLLM"));
+
+  jsiRuntime->global().setProperty(
+      *jsiRuntime, "loadPrivacyFilter",
+      RnExecutorchInstaller::loadModel<models::privacy_filter::PrivacyFilter>(
+          jsiRuntime, jsCallInvoker, "loadPrivacyFilter"));
 
   jsiRuntime->global().setProperty(
       *jsiRuntime, "loadOCR",

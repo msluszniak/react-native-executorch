@@ -1,66 +1,116 @@
 import {
   DecodingOptions,
   SpeechToTextModelConfig,
+  SpeechToTextModelName,
   TranscriptionResult,
 } from '../../types/stt';
 import { ResourceFetcher } from '../../utils/ResourceFetcher';
+import { ResourceSource } from '../../types/common';
 import { RnExecutorchErrorCode } from '../../errors/ErrorCodes';
 import { RnExecutorchError, parseUnknownError } from '../../errors/errorUtils';
 import { Logger } from '../../common/Logger';
 
 /**
  * Module for Speech to Text (STT) functionalities.
- *
  * @category Typescript API
  */
 export class SpeechToTextModule {
   private nativeModule: any;
-  private modelConfig!: SpeechToTextModelConfig;
+  private modelConfig: SpeechToTextModelConfig;
+
+  private constructor(
+    nativeModule: unknown,
+    modelConfig: SpeechToTextModelConfig
+  ) {
+    this.nativeModule = nativeModule;
+    this.modelConfig = modelConfig;
+  }
 
   /**
-   * Loads the model specified by the config object.
-   * `onDownloadProgressCallback` allows you to monitor the current progress of the model download.
-   *
-   * @param model - Configuration object containing model sources.
-   * @param onDownloadProgressCallback - Optional callback to monitor download progress.
+   * Creates a Speech to Text instance for a built-in model.
+   * @param namedSources - Configuration object containing model name, sources, and multilingual flag.
+   * @param onDownloadProgress - Optional callback to monitor download progress, receiving a value between 0 and 1.
+   * @returns A Promise resolving to a `SpeechToTextModule` instance.
+   * @example
+   * ```ts
+   * import { SpeechToTextModule, WHISPER_TINY_EN } from 'react-native-executorch';
+   * const stt = await SpeechToTextModule.fromModelName(WHISPER_TINY_EN);
+   * ```
    */
-  public async load(
-    model: SpeechToTextModelConfig,
-    onDownloadProgressCallback: (progress: number) => void = () => {}
-  ) {
+  static async fromModelName(
+    namedSources: SpeechToTextModelConfig,
+    onDownloadProgress: (progress: number) => void = () => {}
+  ): Promise<SpeechToTextModule> {
     try {
-      this.modelConfig = model;
-
-      const tokenizerLoadPromise = ResourceFetcher.fetch(
-        undefined,
-        model.tokenizerSource
+      const nativeModule = await SpeechToTextModule.loadWhisper(
+        namedSources,
+        onDownloadProgress
       );
-      const encoderDecoderPromise = ResourceFetcher.fetch(
-        onDownloadProgressCallback,
-        model.encoderSource,
-        model.decoderSource
-      );
-      const [tokenizerSources, encoderDecoderResults] = await Promise.all([
-        tokenizerLoadPromise,
-        encoderDecoderPromise,
-      ]);
-      const encoderSource = encoderDecoderResults?.[0];
-      const decoderSource = encoderDecoderResults?.[1];
-      if (!encoderSource || !decoderSource || !tokenizerSources) {
-        throw new RnExecutorchError(
-          RnExecutorchErrorCode.DownloadInterrupted,
-          'The download has been interrupted. As a result, not every file was downloaded. Please retry the download.'
-        );
-      }
-      this.nativeModule = await global.loadSpeechToText(
-        encoderSource,
-        decoderSource,
-        tokenizerSources[0]!
-      );
+      return new SpeechToTextModule(nativeModule, namedSources);
     } catch (error) {
       Logger.error('Load failed:', error);
       throw parseUnknownError(error);
     }
+  }
+
+  /**
+   * Creates a Speech to Text instance with user-provided model binaries.
+   * Use this when working with a custom-exported STT model.
+   * Internally uses `'custom'` as the model name for telemetry.
+   * @remarks The native model contract for this method is not formally defined and may change
+   * between releases. Currently only the Whisper architecture is supported by the native runner.
+   * Refer to the native source code for the current expected interface.
+   * @param modelSource - A fetchable resource pointing to the model binary.
+   * @param tokenizerSource - A fetchable resource pointing to the tokenizer file.
+   * @param isMultilingual - Whether the model supports multiple languages.
+   * @param onDownloadProgress - Optional callback to monitor download progress, receiving a value between 0 and 1.
+   * @returns A Promise resolving to a `SpeechToTextModule` instance.
+   */
+  static fromCustomModel(
+    modelSource: ResourceSource,
+    tokenizerSource: ResourceSource,
+    isMultilingual: boolean,
+    onDownloadProgress: (progress: number) => void = () => {}
+  ): Promise<SpeechToTextModule> {
+    return SpeechToTextModule.fromModelName(
+      {
+        modelName: 'custom' as SpeechToTextModelName,
+        modelSource,
+        tokenizerSource,
+        isMultilingual,
+      },
+      onDownloadProgress
+    );
+  }
+
+  private static async loadWhisper(
+    model: SpeechToTextModelConfig,
+    onDownloadProgressCallback: (progress: number) => void
+  ): Promise<unknown> {
+    const tokenizerLoadPromise = ResourceFetcher.fetch(
+      undefined,
+      model.tokenizerSource
+    );
+    const modelPromise = ResourceFetcher.fetch(
+      onDownloadProgressCallback,
+      model.modelSource
+    );
+    const [tokenizerSources, modelSources] = await Promise.all([
+      tokenizerLoadPromise,
+      modelPromise,
+    ]);
+    if (!modelSources?.[0] || !tokenizerSources?.[0]) {
+      throw new RnExecutorchError(
+        RnExecutorchErrorCode.DownloadInterrupted,
+        'The download has been interrupted. As a result, not every file was downloaded. Please retry the download.'
+      );
+    }
+    // Currently only Whisper architecture is supported
+    return await global.loadSpeechToText(
+      'whisper',
+      modelSources[0],
+      tokenizerSources[0]
+    );
   }
 
   /**
@@ -73,17 +123,16 @@ export class SpeechToTextModule {
   /**
    * Runs the encoding part of the model on the provided waveform.
    * Returns the encoded waveform as a Float32Array.
-   *
    * @param waveform - The input audio waveform.
    * @returns The encoded output.
    */
   public async encode(waveform: Float32Array): Promise<Float32Array> {
-    return new Float32Array(await this.nativeModule.encode(waveform));
+    const buffer = await this.nativeModule.encode(waveform);
+    return new Float32Array(buffer);
   }
 
   /**
    * Runs the decoder of the model.
-   *
    * @param tokens - The input tokens.
    * @param encoderOutput - The encoder output.
    * @returns Decoded output.
@@ -92,16 +141,14 @@ export class SpeechToTextModule {
     tokens: Int32Array,
     encoderOutput: Float32Array
   ): Promise<Float32Array> {
-    return new Float32Array(
-      await this.nativeModule.decode(tokens, encoderOutput)
-    );
+    const buffer = await this.nativeModule.decode(tokens, encoderOutput);
+    return new Float32Array(buffer);
   }
 
   /**
    * Starts a transcription process for a given input array (16kHz waveform).
    * For multilingual models, specify the language in `options`.
    * Returns the transcription as a string. Passing `number[]` is deprecated.
-   *
    * @param waveform - The Float32Array audio data.
    * @param options - Decoding options including language.
    * @returns The transcription string.
@@ -126,8 +173,8 @@ export class SpeechToTextModule {
    * Non-committed transcription contains the part of the transcription that is still being processed and may change.
    * Useful for displaying live, partial results during streaming.
    * Use with `streamInsert` and `streamStop` to control the stream.
-   *
    * @param options - Decoding options including language.
+   * @yields An object containing `committed` and `nonCommitted` transcription results.
    * @returns An async generator yielding transcription updates.
    */
   public async *stream(options: DecodingOptions = {}): AsyncGenerator<{
@@ -200,7 +247,6 @@ export class SpeechToTextModule {
 
   /**
    * Inserts a new audio chunk into the streaming transcription session.
-   *
    * @param waveform - The audio chunk to insert.
    */
   public streamInsert(waveform: Float32Array): void {

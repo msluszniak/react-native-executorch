@@ -1,35 +1,51 @@
 import ColorPalette from '../colors';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import DeviceInfo from 'react-native-device-info';
+import Constants from 'expo-constants';
 import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const BottomBar = ({
   handleCameraPress,
   runForward,
+  hasImage = true,
+  isGenerating = false,
 }: {
   handleCameraPress: (isCamera: boolean) => void;
   runForward: () => void;
+  hasImage?: boolean;
+  isGenerating?: boolean;
 }) => {
+  const { bottom } = useSafeAreaInsets();
+  const disabled = !hasImage || isGenerating;
+
   return (
-    <View style={styles.bottomContainer}>
+    <View style={[styles.bottomContainer, { paddingBottom: bottom || 16 }]}>
       <View style={styles.bottomIconsContainer}>
         <TouchableOpacity onPress={() => handleCameraPress(false)}>
           <FontAwesome name="photo" size={24} color={ColorPalette.primary} />
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() =>
-            !DeviceInfo.isEmulatorSync() && handleCameraPress(true)
-          }
+          onPress={() => Constants.isDevice && handleCameraPress(true)}
         >
           <FontAwesome
             name="camera"
             size={24}
-            color={DeviceInfo.isEmulatorSync() ? '#888' : ColorPalette.primary}
+            color={Constants.isDevice ? ColorPalette.primary : '#888'}
           />
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={styles.button} onPress={runForward}>
-        <Text style={styles.buttonText}>Run model</Text>
+      <TouchableOpacity
+        style={[styles.button, disabled && styles.buttonDisabled]}
+        onPress={runForward}
+        disabled={disabled}
+      >
+        <Text style={styles.buttonText}>
+          {isGenerating
+            ? 'Running...'
+            : hasImage
+              ? 'Run model'
+              : 'Pick an image to run the model'}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -40,8 +56,8 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 15,
     alignItems: 'center',
-    padding: 16,
-    flex: 1,
+    paddingTop: 16,
+    paddingHorizontal: 16,
   },
   bottomIconsContainer: {
     flexDirection: 'row',
@@ -56,6 +72,9 @@ const styles = StyleSheet.create({
     backgroundColor: ColorPalette.primary,
     color: '#fff',
     borderRadius: 8,
+  },
+  buttonDisabled: {
+    backgroundColor: '#888',
   },
   buttonText: {
     color: '#fff',

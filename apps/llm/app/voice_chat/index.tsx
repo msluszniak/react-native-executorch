@@ -11,12 +11,21 @@ import {
 } from 'react-native';
 import SWMIcon from '../../assets/icons/swm_icon.svg';
 import Spinner from '../../components/Spinner';
+import ErrorBanner from '../../components/ErrorBanner';
 import {
   useSpeechToText,
   useLLM,
   QWEN3_0_6B_QUANTIZED,
+  QWEN3_1_7B_QUANTIZED,
+  LLAMA3_2_1B_SPINQUANT,
   WHISPER_TINY_EN,
+  WHISPER_TINY_EN_QUANTIZED,
+  WHISPER_BASE_EN,
+  WHISPER_SMALL_EN,
+  LLMProps,
+  SpeechToTextProps,
 } from 'react-native-executorch';
+import { ModelPicker, ModelOption } from '../../components/ModelPicker';
 import PauseIcon from '../../assets/icons/pause_icon.svg';
 import MicIcon from '../../assets/icons/mic_icon.svg';
 import StopIcon from '../../assets/icons/stop_icon.svg';
@@ -25,7 +34,24 @@ import Messages from '../../components/Messages';
 import { AudioManager, AudioRecorder } from 'react-native-audio-api';
 import DeviceInfo from 'react-native-device-info';
 import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneratingContext } from '../../context';
+
+type LLMModelSources = LLMProps['model'];
+type STTModelSources = SpeechToTextProps['model'];
+
+const LLM_MODELS: ModelOption<LLMModelSources>[] = [
+  { label: 'Qwen3 0.6B', value: QWEN3_0_6B_QUANTIZED },
+  { label: 'Qwen3 1.7B', value: QWEN3_1_7B_QUANTIZED },
+  { label: 'Llama 1B', value: LLAMA3_2_1B_SPINQUANT },
+];
+
+const STT_MODELS: ModelOption<STTModelSources>[] = [
+  { label: 'Whisper Tiny', value: WHISPER_TINY_EN },
+  { label: 'Whisper Tiny Q', value: WHISPER_TINY_EN_QUANTIZED },
+  { label: 'Whisper Base', value: WHISPER_BASE_EN },
+  { label: 'Whisper Small', value: WHISPER_SMALL_EN },
+];
 
 export default function VoiceChatScreenWrapper() {
   const isFocused = useIsFocused();
@@ -34,22 +60,22 @@ export default function VoiceChatScreenWrapper() {
 }
 
 function VoiceChatScreen() {
+  const { bottom } = useSafeAreaInsets();
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscription, setLiveTranscription] = useState('');
+  const [selectedLLM, setSelectedLLM] =
+    useState<LLMModelSources>(QWEN3_0_6B_QUANTIZED);
+  const [selectedSTT, setSelectedSTT] =
+    useState<STTModelSources>(WHISPER_TINY_EN);
+  const [error, setError] = useState<string | null>(null);
 
-  const [recorder] = useState(
-    () =>
-      new AudioRecorder({
-        sampleRate: 16000,
-        bufferLengthInSamples: 1600,
-      })
-  );
+  const [recorder] = useState(() => new AudioRecorder());
 
   const { setGlobalGenerating } = useContext(GeneratingContext);
 
-  const llm = useLLM({ model: QWEN3_0_6B_QUANTIZED });
+  const llm = useLLM({ model: selectedLLM });
   const speechToText = useSpeechToText({
-    model: WHISPER_TINY_EN,
+    model: selectedSTT,
   });
 
   useEffect(() => {
@@ -60,7 +86,7 @@ function VoiceChatScreen() {
     AudioManager.setAudioSessionOptions({
       iosCategory: 'playAndRecord',
       iosMode: 'spokenAudio',
-      iosOptions: ['allowBluetooth', 'defaultToSpeaker'],
+      iosOptions: ['allowBluetoothHFP', 'defaultToSpeaker'],
     });
     AudioManager.requestRecordingPermissions();
   }, []);
@@ -74,9 +100,17 @@ function VoiceChatScreen() {
       setIsRecording(true);
       setLiveTranscription('');
 
-      recorder.onAudioReady(({ buffer }) => {
-        speechToText.streamInsert(buffer.getChannelData(0));
-      });
+      const sampleRate = 16000;
+      recorder.onAudioReady(
+        {
+          sampleRate,
+          bufferLength: 0.1 * sampleRate,
+          channelCount: 1,
+        },
+        ({ buffer }) => {
+          speechToText.streamInsert(buffer.getChannelData(0));
+        }
+      );
       recorder.start();
 
       let finalResult = '';
@@ -88,7 +122,7 @@ function VoiceChatScreen() {
           finalResult = text;
         }
       } catch (e) {
-        console.error('Streaming error:', e);
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (finalResult.trim().length > 0) {
           await llm.sendMessage(finalResult);
@@ -99,20 +133,18 @@ function VoiceChatScreen() {
   };
 
   useEffect(() => {
-    if (llm.error) {
-      console.error('LLM error:', llm.error);
-    }
+    if (llm.error) setError(String(llm.error));
   }, [llm.error]);
 
   useEffect(() => {
-    if (speechToText.error) {
-      console.error('speechToText error:', speechToText.error);
-    }
+    if (speechToText.error) setError(String(speechToText.error));
   }, [speechToText.error]);
 
-  return !llm.isReady || !speechToText.isReady ? (
+  return (!llm.isReady || !speechToText.isReady) &&
+    !llm.error &&
+    !speechToText.error ? (
     <Spinner
-      visible={!llm.isReady || !speechToText.isReady}
+      visible={true}
       textContent={`Loading the LLM model ${(llm.downloadProgress * 100).toFixed(0)} %\nLoading the speech model ${(speechToText.downloadProgress * 100).toFixed(0)} %`}
     />
   ) : (
@@ -126,7 +158,7 @@ function VoiceChatScreen() {
           <SWMIcon width={45} height={45} />
           <Text style={styles.textModelName}>Qwen 3 x Whisper</Text>
         </View>
-
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
         {llm.messageHistory.length > 0 || liveTranscription.length > 0 ? (
           <View style={styles.chatContainer}>
             <Messages
@@ -150,12 +182,32 @@ function VoiceChatScreen() {
           <View style={styles.helloMessageContainer}>
             <Text style={styles.helloText}>Hello! 👋</Text>
             <Text style={styles.bottomHelloText}>
-              What can I help you with?
+              Tap the mic and speak to me. I'll transcribe your voice and
+              respond using a language model — all on-device.
             </Text>
           </View>
         )}
 
-        <View style={styles.bottomContainer}>
+        <ModelPicker
+          models={LLM_MODELS}
+          selectedModel={selectedLLM}
+          onSelect={(m) => setSelectedLLM(m)}
+        />
+        <ModelPicker
+          models={STT_MODELS}
+          selectedModel={selectedSTT}
+          onSelect={(m) => setSelectedSTT(m)}
+        />
+
+        <View
+          style={[
+            styles.bottomContainer,
+            Platform.OS === 'android' && {
+              paddingBottom: bottom || 16,
+              height: 100 + (bottom || 16),
+            },
+          ]}
+        >
           {DeviceInfo.isEmulatorSync() ? (
             <View style={styles.emulatorBox}>
               <Text style={[styles.emulatorWarning]}>

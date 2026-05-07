@@ -13,6 +13,12 @@ export default function Home() {
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={styles.button}
+          onPress={() => router.navigate('vision_camera/')}
+        >
+          <Text style={styles.buttonText}>Vision Camera</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => router.navigate('classification/')}
         >
           <Text style={styles.buttonText}>Classification</Text>
@@ -31,9 +37,15 @@ export default function Home() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
-          onPress={() => router.navigate('object_detection_live/')}
+          onPress={() => router.navigate('instance_segmentation/')}
         >
-          <Text style={styles.buttonText}>Object Detection Live</Text>
+          <Text style={styles.buttonText}>Instance Segmentation</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => router.navigate('pose_estimation/')}
+        >
+          <Text style={styles.buttonText}>Pose Estimation</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}

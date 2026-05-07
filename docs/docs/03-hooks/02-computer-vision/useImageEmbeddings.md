@@ -18,7 +18,7 @@ description: "Learn how to use image embeddings models in your React Native appl
 
 Image Embedding is the process of converting an image into a numerical representation. This representation can be used for tasks, such as classification, clustering and (using contrastive learning like e.g. CLIP model) image search.
 
-:::warning
+:::info
 It is recommended to use models provided by us, which are available at our [Hugging Face repository](https://huggingface.co/collections/software-mansion/image-embeddings-68d0eda599a9d37caaaf1ad0). You can also use [constants](https://github.com/software-mansion/react-native-executorch/blob/main/packages/react-native-executorch/src/constants/modelUrls.ts) shipped with our library.
 :::
 
@@ -63,7 +63,11 @@ You need more details? Check the following resources:
 
 ## Running the model
 
-To run the model, you can use the [`forward`](../../06-api-reference/interfaces/ImageEmbeddingsType.md#forward) method. It accepts one argument which is a URI/URL to an image you want to encode or base64 (whole URI or only raw base64). The function returns a promise, which can resolve either to an error or an array of numbers representing the embedding.
+To run the model, use the [`forward`](../../06-api-reference/interfaces/ImageEmbeddingsType.md#forward) method. It accepts one argument — the image to embed. The image can be a remote URL, a local file URI, a base64-encoded image (whole URI or only raw base64), or a [`PixelData`](../../06-api-reference/interfaces/PixelData.md) object (raw RGB pixel buffer). The function returns a promise resolving to a `Float32Array` representing the embedding.
+
+## VisionCamera integration
+
+See the full guide: [VisionCamera Integration](./visioncamera-integration.md).
 
 ## Example
 

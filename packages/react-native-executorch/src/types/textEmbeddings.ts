@@ -2,14 +2,34 @@ import { RnExecutorchError } from '../errors/errorUtils';
 import { ResourceSource } from '../types/common';
 
 /**
- * Props for the useTextEmbeddings hook.
- *
+ * Union of all built-in text embeddings model names.
  * @category Types
- * @property {Object} model - An object containing the model and tokenizer sources.
+ */
+export type TextEmbeddingsModelName =
+  | 'all-minilm-l6-v2'
+  | 'all-mpnet-base-v2'
+  | 'multi-qa-minilm-l6-cos-v1'
+  | 'multi-qa-mpnet-base-dot-v1'
+  | 'distiluse-base-multilingual-cased-v2-8da4w'
+  | 'distiluse-base-multilingual-cased-v2-coreml'
+  | 'paraphrase-multilingual-minilm-l12-v2-quantized'
+  | 'clip-vit-base-patch32-text';
+
+/**
+ * Props for the useTextEmbeddings hook.
+ * @category Types
+ * @property {object} model - An object containing the model configuration.
+ * @property {TextEmbeddingsModelName} model.modelName - Unique name identifying the model.
+ * @property {ResourceSource} model.modelSource - The source of the text embeddings model binary.
+ * @property {ResourceSource} model.tokenizerSource - The source of the tokenizer JSON file.
  * @property {boolean} [preventLoad] - Boolean that can prevent automatic model loading (and downloading the data if you load it for the first time) after running the hook.
  */
 export interface TextEmbeddingsProps {
   model: {
+    /**
+     * The unique name of the text embeddings model.
+     */
+    modelName: TextEmbeddingsModelName;
     /**
      * The source of the text embeddings model binary.
      */
@@ -24,7 +44,6 @@ export interface TextEmbeddingsProps {
 
 /**
  * React hook state and methods for managing a Text Embeddings model instance.
- *
  * @category Types
  */
 export interface TextEmbeddingsType {

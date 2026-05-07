@@ -84,6 +84,12 @@ target_link_options(opencv_deps INTERFACE -fopenmp -static-openmp)
 add_library(tokenizers_deps INTERFACE)
 target_include_directories(tokenizers_deps INTERFACE "${TOKENIZERS_DIR}")
 
+# Phonemis
+add_library(phonemis STATIC IMPORTED)
+  set_target_properties(phonemis PROPERTIES
+      IMPORTED_LOCATION "${ANDROID_THIRD_PARTY}/phonemis/${ANDROID_ABI}/libphonemis.a"
+  )
+
 # Source Definitions
 set(CORE_SOURCES
     ${RNEXECUTORCH_DIR}/models/BaseModel.cpp
@@ -109,6 +115,8 @@ target_include_directories(rntests_core PUBLIC
     ${RNEXECUTORCH_DIR}
     ${COMMON_DIR}
     ${PACKAGE_ROOT}/third-party/include
+    ${PACKAGE_ROOT}/third-party/include/cpuinfo
+    ${PACKAGE_ROOT}/third-party/include/pthreadpool
     ${REACT_NATIVE_DIR}/ReactCommon
     ${REACT_NATIVE_DIR}/ReactCommon/jsi
     ${REACT_NATIVE_DIR}/ReactCommon/callinvoker
@@ -135,6 +143,20 @@ function(add_rn_test TEST_TARGET TEST_FILENAME)
 endfunction()
 
 add_rn_test(NumericalTests unit/NumericalTest.cpp)
+add_rn_test(RunnerTests unit/RunnerTest.cpp
+    SOURCES
+        ${COMMON_DIR}/runner/base_llm_runner.cpp
+        ${COMMON_DIR}/runner/sampler.cpp
+        ${COMMON_DIR}/runner/arange_util.cpp
+        integration/stubs/jsi_stubs.cpp
+    LIBS tokenizers_deps
+)
+add_rn_test(SamplerTests unit/SamplerTest.cpp
+    SOURCES
+        ${COMMON_DIR}/runner/sampler.cpp
+        ${COMMON_DIR}/runner/arange_util.cpp
+    LIBS
+)
 add_rn_test(LogTests unit/LogTest.cpp)
 add_rn_test(FileUtilsTest unit/FileUtilsTest.cpp)
 add_rn_test(ImageProcessingTest unit/ImageProcessingTest.cpp
@@ -143,22 +165,51 @@ add_rn_test(ImageProcessingTest unit/ImageProcessingTest.cpp
     LIBS opencv_deps
 )
 
+add_rn_test(FrameProcessorTests unit/FrameProcessorTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${IMAGE_UTILS_SOURCES}
+    LIBS opencv_deps android
+)
+
+add_rn_test(FrameTransformTests unit/FrameTransformTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
+    LIBS opencv_deps
+)
+
 add_rn_test(BaseModelTests integration/BaseModelTest.cpp)
+
+add_rn_test(VisionModelTests integration/VisionModelTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
+        ${IMAGE_UTILS_SOURCES}
+    LIBS opencv_deps android
+)
 
 add_rn_test(ClassificationTests integration/ClassificationTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/classification/Classification.cpp
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
         ${IMAGE_UTILS_SOURCES}
-    LIBS opencv_deps
+    LIBS opencv_deps android
 )
 
 add_rn_test(ObjectDetectionTests integration/ObjectDetectionTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/object_detection/ObjectDetection.cpp
-        ${RNEXECUTORCH_DIR}/models/object_detection/Utils.cpp
         ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
         ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
         ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
+        ${RNEXECUTORCH_DIR}/utils/computer_vision/Processing.cpp
         ${IMAGE_UTILS_SOURCES}
     LIBS opencv_deps android
 )
@@ -167,8 +218,12 @@ add_rn_test(ImageEmbeddingsTests integration/ImageEmbeddingsTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/embeddings/image/ImageEmbeddings.cpp
         ${RNEXECUTORCH_DIR}/models/embeddings/BaseEmbeddings.cpp
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
         ${IMAGE_UTILS_SOURCES}
-    LIBS opencv_deps
+    LIBS opencv_deps android
 )
 
 add_rn_test(TextEmbeddingsTests integration/TextEmbeddingsTest.cpp
@@ -182,8 +237,12 @@ add_rn_test(TextEmbeddingsTests integration/TextEmbeddingsTest.cpp
 add_rn_test(StyleTransferTests integration/StyleTransferTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/style_transfer/StyleTransfer.cpp
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
         ${IMAGE_UTILS_SOURCES}
-    LIBS opencv_deps
+    LIBS opencv_deps android
 )
 
 add_rn_test(VADTests integration/VoiceActivityDetectionTest.cpp
@@ -201,24 +260,39 @@ add_rn_test(TokenizerModuleTests integration/TokenizerModuleTest.cpp
 add_rn_test(SpeechToTextTests integration/SpeechToTextTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/speech_to_text/SpeechToText.cpp
-        ${RNEXECUTORCH_DIR}/models/speech_to_text/asr/ASR.cpp
-        ${RNEXECUTORCH_DIR}/models/speech_to_text/stream/HypothesisBuffer.cpp
-        ${RNEXECUTORCH_DIR}/models/speech_to_text/stream/OnlineASRProcessor.cpp
+        ${RNEXECUTORCH_DIR}/models/speech_to_text/whisper/ASR.cpp
+        ${RNEXECUTORCH_DIR}/models/speech_to_text/whisper/HypothesisBuffer.cpp
+        ${RNEXECUTORCH_DIR}/models/speech_to_text/whisper/OnlineASR.cpp
         ${RNEXECUTORCH_DIR}/data_processing/gzip.cpp
         ${TOKENIZER_SOURCES}
         ${DSP_SOURCES}
     LIBS tokenizers_deps z
 )
 
+add_rn_test(TextToSpeechTests integration/TextToSpeechTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/models/text_to_speech/kokoro/Kokoro.cpp
+        ${RNEXECUTORCH_DIR}/models/text_to_speech/kokoro/DurationPredictor.cpp
+        ${RNEXECUTORCH_DIR}/models/text_to_speech/kokoro/Synthesizer.cpp
+        ${RNEXECUTORCH_DIR}/models/text_to_speech/kokoro/Partitioner.cpp
+        ${RNEXECUTORCH_DIR}/models/text_to_speech/kokoro/Utils.cpp
+    LIBS phonemis
+)
+
 add_rn_test(LLMTests integration/LLMTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/llm/LLM.cpp
-        ${COMMON_DIR}/runner/runner.cpp
+        ${COMMON_DIR}/runner/base_llm_runner.cpp
+        ${COMMON_DIR}/runner/text_runner.cpp
+        ${COMMON_DIR}/runner/multimodal_runner.cpp
+        ${COMMON_DIR}/runner/multimodal_prefiller.cpp
         ${COMMON_DIR}/runner/text_prefiller.cpp
         ${COMMON_DIR}/runner/text_decoder_runner.cpp
         ${COMMON_DIR}/runner/sampler.cpp
         ${COMMON_DIR}/runner/arange_util.cpp
-    LIBS tokenizers_deps
+        ${COMMON_DIR}/runner/encoders/vision_encoder.cpp
+        ${IMAGE_UTILS_SOURCES}
+    LIBS tokenizers_deps opencv_deps
 )
 
 add_rn_test(TextToImageTests integration/TextToImageTest.cpp
@@ -234,6 +308,40 @@ add_rn_test(TextToImageTests integration/TextToImageTest.cpp
     LIBS tokenizers_deps
 )
 
+add_rn_test(SemanticSegmentationTests integration/SemanticSegmentationTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/models/semantic_segmentation/BaseSemanticSegmentation.cpp
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
+        ${IMAGE_UTILS_SOURCES}
+    LIBS opencv_deps android
+)
+
+add_rn_test(InstanceSegmentationTests integration/InstanceSegmentationTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/models/instance_segmentation/BaseInstanceSegmentation.cpp
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
+        ${RNEXECUTORCH_DIR}/utils/computer_vision/Processing.cpp
+        ${IMAGE_UTILS_SOURCES}
+    LIBS opencv_deps android
+)
+
+add_rn_test(PoseEstimationTests integration/PoseEstimationTest.cpp
+    SOURCES
+        ${RNEXECUTORCH_DIR}/models/pose_estimation/PoseEstimation.cpp
+        ${RNEXECUTORCH_DIR}/models/VisionModel.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
+        ${IMAGE_UTILS_SOURCES}
+    LIBS opencv_deps android
+)
+
 add_rn_test(OCRTests integration/OCRTest.cpp
     SOURCES
         ${RNEXECUTORCH_DIR}/models/ocr/OCR.cpp
@@ -244,8 +352,11 @@ add_rn_test(OCRTests integration/OCRTest.cpp
         ${RNEXECUTORCH_DIR}/models/ocr/utils/DetectorUtils.cpp
         ${RNEXECUTORCH_DIR}/models/ocr/utils/RecognitionHandlerUtils.cpp
         ${RNEXECUTORCH_DIR}/models/ocr/utils/RecognizerUtils.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
         ${IMAGE_UTILS_SOURCES}
-    LIBS opencv_deps
+    LIBS opencv_deps android
 )
 
 add_rn_test(VerticalOCRTests integration/VerticalOCRTest.cpp
@@ -258,6 +369,9 @@ add_rn_test(VerticalOCRTests integration/VerticalOCRTest.cpp
         ${RNEXECUTORCH_DIR}/models/ocr/utils/DetectorUtils.cpp
         ${RNEXECUTORCH_DIR}/models/ocr/utils/RecognitionHandlerUtils.cpp
         ${RNEXECUTORCH_DIR}/models/ocr/utils/RecognizerUtils.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameProcessor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameExtractor.cpp
+        ${RNEXECUTORCH_DIR}/utils/FrameTransform.cpp
         ${IMAGE_UTILS_SOURCES}
-    LIBS opencv_deps
+    LIBS opencv_deps android
 )

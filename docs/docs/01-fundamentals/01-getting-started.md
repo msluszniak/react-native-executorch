@@ -26,7 +26,7 @@ import TabItem from '@theme/TabItem';
 
 ## React Native ExecuTorch
 
-React Native ExecuTorch is our way of bringing ExecuTorch into the React Native world. Our API is built to be simple, declarative, and efficient. Plus, we’ll provide a set of pre-exported models for common use cases, so you won’t have to worry about handling exports yourself. With just a few lines of JavaScript, you’ll be able to run AI models (even LLMs 👀) right on your device—keeping user data private and saving on cloud costs.
+React Native ExecuTorch is our way of bringing ExecuTorch into the React Native world. Our API is built to be simple, declarative, and efficient. Additionally, we provide a set of pre-exported models for common use cases, so you don't have to worry about handling exports yourself. With just a few lines of JavaScript, you can run AI models (even LLMs 👀) right on your device—keeping user data private and saving on cloud costs.
 
 ## Compatibility
 
@@ -34,33 +34,61 @@ React Native Executorch supports only the [New React Native architecture](https:
 
 If your app still runs on the old architecture, please consider upgrading to the New Architecture.
 
+For supported React Native and Expo versions, see the [Compatibility table](../07-other/01-compatibility.mdx).
+
 ## Installation
 
-Installation is pretty straightforward, just use your favorite package manager.
+Installation is pretty straightforward, use your package manager of choice to install the package and some peer dependencies required to streamline model downloads. If you want to implement your custom model fetching logic, see [this document](../08-resource-fetcher/02-custom-adapter.md).
 
 <Tabs>
   <TabItem value="npm" label="NPM">
 
-    ```
+    ```bash
     npm install react-native-executorch
+    # For Expo projects
+    npm install react-native-executorch-expo-resource-fetcher
+    # For bare React Native projects
+    npm install react-native-executorch-bare-resource-fetcher
     ```
 
   </TabItem>
   <TabItem value="pnpm" label="PNPM">
 
-    ```
+    ```bash
     pnpm install react-native-executorch
+    # For Expo projects
+    pnpm install react-native-executorch-expo-resource-fetcher
+    # For bare React Native projects
+    pnpm install react-native-executorch-bare-resource-fetcher
     ```
 
   </TabItem>
   <TabItem value="yarn" label="YARN">
 
-    ```
+    ```bash
     yarn add react-native-executorch
+    # For Expo projects
+    yarn add react-native-executorch-expo-resource-fetcher
+    # For bare React Native projects
+    yarn add react-native-executorch-bare-resource-fetcher
     ```
 
   </TabItem>
 </Tabs>
+
+:::warning
+Before using any other API, you must call `initExecutorch` with a resource fetcher adapter at the entry point of your app:
+
+```js
+import { initExecutorch } from 'react-native-executorch';
+import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
+// or BareResourceFetcher for Expo projects
+
+initExecutorch({ resourceFetcher: ExpoResourceFetcher });
+```
+
+Calling any library API without initializing first will throw a `ResourceFetcherAdapterNotInitialized` error.
+:::
 
 Our library offers support for both bare React Native and Expo projects. Please follow the instructions from [Loading models section](./02-loading-models.md) to make sure you setup your project correctly. We encourage you to use Expo project if possible. If you are planning to migrate from bare React Native to Expo project, the link (https://docs.expo.dev/bare/installing-expo-modules/) offers a guidance on setting up Expo Modules in a bare React Native environment.
 
@@ -87,18 +115,18 @@ Because we are using ExecuTorch under the hood, you won't be able to build iOS a
 Running the app with the library:
 
 ```bash
-yarn run expo:<ios | android> -d
+yarn <ios | android> -d
 ```
 
 ## Supporting new models in React Native ExecuTorch
 
 Adding new functionality to the library follows a consistent three-step integration pipeline:
 
-1. **Model Serialization:** We export PyTorch models for specific tasks (e.g., object detection) into the \*.pte format, which is optimized for the ExecuTorch runtime.
+1. **Model Serialization:** Export PyTorch model for a specific task (e.g. object detection) into the `*.pte` format, which is optimized for the ExecuTorch runtime.
 
-2. **Native Implementation:** We develop a C++ execution layer that interfaces with the ExecuTorch runtime to handle inference. This layer also manages model-dependent logic, such as data pre-processing and post-processing.
+2. **Native Implementation:** Develop a C++ execution layer that interfaces with the ExecuTorch runtime to handle inference. This layer also manages model-dependent logic, such as data pre-processing and post-processing.
 
-3. **TS Bindings:** Finally, we implement a TypeScript API that bridges the JavaScript environment to the native C++ logic, providing a clean, typed interface for the end user."
+3. **TS Bindings:** Finally, implement a TypeScript API that bridges the JavaScript environment to the native C++ logic, providing a clean, typed interface for the end user.
 
 ## Good reads
 

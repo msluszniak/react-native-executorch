@@ -2,15 +2,15 @@ import { ResourceSource } from '../types/common';
 import { RnExecutorchError } from '../errors/errorUtils';
 import { RnExecutorchErrorCode } from '../errors/ErrorCodes';
 import { ResourceFetcherUtils } from './ResourceFetcherUtils';
+import { Logger } from '../common/Logger';
+import { getModelNameForUrl } from '../constants/modelUrls';
 
 /**
  * Adapter interface for resource fetching operations.
  * **Required Methods:**
  * - `fetch`: Download resources to local storage (used by all modules)
  * - `readAsString`: Read file contents as string (used for config files)
- *
  * @category Utilities - General
- *
  * @remarks
  * This interface is intentionally minimal. Custom fetchers only need to implement
  * these two methods for the library to function correctly.
@@ -18,26 +18,22 @@ import { ResourceFetcherUtils } from './ResourceFetcherUtils';
 export interface ResourceFetcherAdapter {
   /**
    * Fetches resources (remote URLs, local files or embedded assets), downloads or stores them locally for use by React Native ExecuTorch.
-   *
    * @param callback - Optional callback to track progress of all downloads, reported between 0 and 1.
    * @param sources - Multiple resources that can be strings, asset references, or objects.
    * @returns If the fetch was successful, it returns a promise which resolves to an array of local file paths for the downloaded/stored resources (without file:// prefix).
    * If the fetch was interrupted, it returns a promise which resolves to `null`.
-   *
    * @remarks
    * **REQUIRED**: Used by all library modules for downloading models and resources.
    */
   fetch(
     callback: (downloadProgress: number) => void,
     ...sources: ResourceSource[]
-  ): Promise<string[] | null>;
+  ): Promise<{ paths: string[]; wasDownloaded: boolean[] }>;
 
   /**
    * Read file contents as a string.
-   *
    * @param path - Absolute file path
    * @returns File contents as string
-   *
    * @remarks
    * **REQUIRED**: Used internally for reading configuration files (e.g., tokenizer configs).
    */
@@ -45,9 +41,14 @@ export interface ResourceFetcherAdapter {
 }
 
 /**
- * This module provides functions to download and work with downloaded files stored in the application's document directory inside the `react-native-executorch/` directory.
- * These utilities can help you manage your storage and clean up the downloaded files when they are no longer needed.
+ * Static entry point that delegates resource operations to the configured
+ * `ResourceFetcherAdapter` (registered via `initExecutorch({ resourceFetcher })`).
  *
+ * For storage-management utilities — deleting downloaded models, listing
+ * downloaded files, getting their total size, and pausing/resuming/cancelling
+ * downloads — use the adapter implementation directly. See `ExpoResourceFetcher`
+ * (in `react-native-executorch-expo-resource-fetcher`) or `BareResourceFetcher`
+ * (in `react-native-executorch-bare-resource-fetcher`).
  * @category Utilities - General
  */
 export class ResourceFetcher {
@@ -55,9 +56,7 @@ export class ResourceFetcher {
 
   /**
    * Sets a custom resource fetcher adapter for resource operations.
-   *
    * @param adapter - The adapter instance to use for fetching resources.
-   *
    * @remarks
    * **INTERNAL**: Used by platform-specific init functions (expo/bare) to inject their fetcher implementation.
    */
@@ -67,7 +66,6 @@ export class ResourceFetcher {
 
   /**
    * Resets the resource fetcher adapter to null.
-   *
    * @remarks
    * **INTERNAL**: Used primarily for testing purposes to clear the adapter state.
    */
@@ -77,18 +75,20 @@ export class ResourceFetcher {
 
   /**
    * Gets the current resource fetcher adapter instance.
-   *
    * @returns The configured ResourceFetcherAdapter instance.
    * @throws {RnExecutorchError} If no adapter has been set via {@link setAdapter}.
-   *
    * @remarks
    * **INTERNAL**: Used internally by all resource fetching operations.
    */
   static getAdapter(): ResourceFetcherAdapter {
     if (!this.adapter) {
+      const errorMessage =
+        'ResourceFetcher adapter is not initialized. Please call initExecutorch({ resourceFetcher: ... }) with a valid adapter, e.g., from react-native-executorch-expo-resource-fetcher or react-native-executorch-bare-resource-fetcher. For more details please refer to: https://docs.swmansion.com/react-native-executorch/docs/next/fundamentals/loading-models';
+      // for sanity :)
+      Logger.error(errorMessage);
       throw new RnExecutorchError(
         RnExecutorchErrorCode.ResourceFetcherAdapterNotInitialized,
-        'ResourceFetcher adapter is not initialized. Please call initExecutorch({ resourceFetcher: ... }) with a valid adapter, e.g., from @react-native-executorch/expo-resource-fetcher or @react-native-executorch/bare-resource-fetcher. For more details please refer: https://docs.swmansion.com/react-native-executorch/docs/next/fundamentals/loading-models'
+        errorMessage
       );
     }
     return this.adapter;
@@ -96,7 +96,6 @@ export class ResourceFetcher {
 
   /**
    * Fetches resources (remote URLs, local files or embedded assets), downloads or stores them locally for use by React Native ExecuTorch.
-   *
    * @param callback - Optional callback to track progress of all downloads, reported between 0 and 1.
    * @param sources - Multiple resources that can be strings, asset references, or objects.
    * @returns If the fetch was successful, it returns a promise which resolves to an array of local file paths for the downloaded/stored resources (without file:// prefix).
@@ -105,22 +104,28 @@ export class ResourceFetcher {
   static async fetch(
     callback: (downloadProgress: number) => void = () => {},
     ...sources: ResourceSource[]
-  ) {
-    for (const source of sources) {
-      if (typeof source === 'string') {
-        try {
+  ): Promise<string[]> {
+    const { paths, wasDownloaded } = await this.getAdapter().fetch(
+      callback,
+      ...sources
+    );
+    const triggeredModels = new Set<string>();
+    for (let i = 0; i < sources.length; i++) {
+      if (typeof sources[i] === 'string' && wasDownloaded[i]) {
+        const source = sources[i] as string;
+        const modelName = getModelNameForUrl(source);
+        if (modelName && !triggeredModels.has(modelName)) {
+          triggeredModels.add(modelName);
+          ResourceFetcherUtils.triggerDownloadEvent(source);
           ResourceFetcherUtils.triggerHuggingFaceDownloadCounter(source);
-        } catch (error) {
-          throw error;
         }
       }
     }
-    return this.getAdapter().fetch(callback, ...sources);
+    return paths;
   }
 
   /**
    * Filesystem utilities for reading downloaded resources.
-   *
    * @remarks
    * Provides access to filesystem operations through the configured adapter.
    * Currently supports reading file contents as strings for configuration files.
@@ -128,10 +133,8 @@ export class ResourceFetcher {
   static fs = {
     /**
      * Reads the contents of a file as a string.
-     *
      * @param path - Absolute file path to read.
      * @returns A promise that resolves to the file contents as a string.
-     *
      * @remarks
      * **REQUIRED**: Used internally for reading configuration files (e.g., tokenizer configs).
      */

@@ -23,17 +23,20 @@ description: "Learn how to use LLMs in your React Native applications with React
 
 React Native ExecuTorch supports a variety of LLMs (checkout our [HuggingFace repository](https://huggingface.co/software-mansion) for model already converted to ExecuTorch format) including Llama 3.2. Before getting started, you’ll need to obtain the .pte binary—a serialized model, the tokenizer and tokenizer config JSON files. There are various ways to accomplish this:
 
-- For your convenience, it's best if you use models exported by us, you can get them from our [HuggingFace repository](https://huggingface.co/collections/software-mansion/llm). You can also use [constants](../../06-api-reference/index.md#models---lmm) shipped with our library.
-- Follow the official [tutorial](https://docs.pytorch.org/executorch/stable/llm/export-llm.html) made by ExecuTorch team to export arbitrary chosen LLM model.
+:::info
+It is recommended to use models provided by us, which are available at our [HuggingFace repository](https://huggingface.co/collections/software-mansion/llm). You can also use [constants](../../06-api-reference/index.md#models---llm) shipped with our library.
 
-:::danger
+Alternatively, follow the official [tutorial](https://docs.pytorch.org/executorch/stable/llm/export-llm.html) made by ExecuTorch team to export an arbitrary LLM model.
+:::
+
+:::warning
 Lower-end devices might not be able to fit LLMs into memory. We recommend using quantized models to reduce the memory footprint.
 :::
 
 ## API Reference
 
 - For detailed API Reference for `useLLM` see: [`useLLM` API Reference](../../06-api-reference/functions/useLLM.md).
-- For all LLM models available out-of-the-box in React Native ExecuTorch see: [LLM Models](../../06-api-reference/index.md#models---lmm).
+- For all LLM models available out-of-the-box in React Native ExecuTorch see: [LLM Models](../../06-api-reference/index.md#models---llm).
 - For useful LLM utility functionalities please refer to the following link: [LLM Utility Functionalities](../../06-api-reference/index.md#utilities---llm).
 
 ## Initializing
@@ -41,9 +44,9 @@ Lower-end devices might not be able to fit LLMs into memory. We recommend using 
 In order to load a model into the app, you need to run the following code:
 
 ```typescript
-import { useLLM, LLAMA3_2_1B } from 'react-native-executorch';
+import { useLLM, LFM2_5_1_2B_INSTRUCT } from 'react-native-executorch';
 
-const llm = useLLM({ model: LLAMA3_2_1B });
+const llm = useLLM({ model: LFM2_5_1_2B_INSTRUCT });
 ```
 
 <br/>
@@ -61,7 +64,7 @@ You need more details? Check the following resources:
 
 - For detailed information about `useLLM` arguments check this section: [`useLLM` arguments](../../06-api-reference/functions/useLLM.md#parameters).
 - For more information on loading resources, take a look at [loading models](../../01-fundamentals/02-loading-models.md) page.
-- For available LLM models please check out the following list: [LLM Models](../../06-api-reference/index.md#models---lmm).
+- For available LLM models please check out the following list: [LLM Models](../../06-api-reference/index.md#models---llm).
 
 ### Returns
 
@@ -89,7 +92,7 @@ You can use functions returned from this hooks in two manners:
 To perform chat completion you can use the [`generate`](../../06-api-reference/interfaces/LLMType.md#generate) function. The [`response`](../../06-api-reference/interfaces/LLMType.md#response) value is updated with each token as it's generated, and the function returns a promise that resolves to the complete response when generation finishes.
 
 ```tsx
-const llm = useLLM({ model: LLAMA3_2_1B });
+const llm = useLLM({ model: LFM2_5_1_2B_INSTRUCT });
 
 const handleGenerate = async () => {
   const chat: Message[] = [
@@ -208,7 +211,15 @@ To configure model (i.e. change system prompt, load initial conversation history
 
   - [`temperature`](../../06-api-reference/interfaces/GenerationConfig.md#temperature) - Scales output logits by the inverse of temperature. Controls the randomness / creativity of text generation.
 
-  - [`topp`](../../06-api-reference/interfaces/GenerationConfig.md#topp) - Only samples from the smallest set of tokens whose cumulative probability exceeds topp.
+  - [`topP`](../../06-api-reference/interfaces/GenerationConfig.md#topp) - Only samples from the smallest set of tokens whose cumulative probability exceeds topP. Range `[0, 1]`. Values of `0` or `1` disable top-p filtering.
+
+  - [`minP`](../../06-api-reference/interfaces/GenerationConfig.md#minp) - Minimum-probability threshold applied after softmax: tokens whose probability is below `minP * max_prob` are excluded from sampling. Range `[0, 1]`. Default `0` disables the filter. Stacks with `topP` when both are set.
+
+  - [`repetitionPenalty`](../../06-api-reference/interfaces/GenerationConfig.md#repetitionpenalty) - Multiplicative penalty applied to logits of tokens that already appeared in the prompt or the generated text. Values greater than `1` discourage repetition; default `1` disables the penalty.
+
+:::info[Built-in models ship with sampling defaults]
+Model presets expose an optional [`generationConfig`](../../06-api-reference/interfaces/LLMProps.md) on the `model` prop. Whenever the upstream model card publishes recommended values (currently Qwen3 and LFM2-VL) the preset carries them and `useLLM` applies them automatically before `isReady` flips — you don't need to call `configure` just to get sensible defaults. Any fields you then pass to `configure` still override on a per-field basis.
+:::
 
 ### Model configuration example
 
@@ -219,7 +230,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   ToolCall,
   useLLM,
-  LLAMA3_2_1B_SPINQUANT,
+  LFM2_5_1_2B_INSTRUCT,
 } from 'react-native-executorch';
 
 const TOOL_DEFINITIONS: LLMTool[] = [
@@ -255,7 +266,7 @@ const executeTool: (call: ToolCall) => Promise<string | null> = async (
   }
 };
 
-const llm = useLLM({ model: LLAMA3_2_1B_SPINQUANT });
+const llm = useLLM({ model: LFM2_5_1_2B_INSTRUCT });
 
 const { configure } = llm;
 useEffect(() => {
@@ -279,7 +290,9 @@ useEffect(() => {
       outputTokenBatchSize: 15,
       batchTimeInterval: 100,
       temperature: 0.7,
-      topp: 0.9,
+      topP: 0.9,
+      minP: 0.05,
+      repetitionPenalty: 1.05,
     },
   });
 }, [configure]);
@@ -290,7 +303,7 @@ useEffect(() => {
 In order to send a message to the model, one can use the following code:
 
 ```tsx
-const llm = useLLM({ model: LLAMA3_2_1B });
+const llm = useLLM({ model: LFM2_5_1_2B_INSTRUCT });
 
 const send = () => {
   const message = 'Hi, who are you?';
@@ -481,14 +494,85 @@ The response should include JSON:
 
 Depending on selected model and the user's device generation speed can be above 60 tokens per second. If the [`tokenCallback`](../../06-api-reference/classes/LLMModule.md#tokencallback) from [`LLMModule`](../../06-api-reference/classes/LLMModule.md), which is used under the hood, triggers rerenders and is invoked on every single token it can significantly decrease the app's performance. To alleviate this and help improve performance we've implemented token batching. To configure this you need to call [`configure`](../../06-api-reference/interfaces/LLMType.md#configure) method and pass [`generationConfig`](../../06-api-reference/interfaces/LLMConfig.md#generationconfig). You can check what you can configure [Configuring the Model](../../03-hooks/01-natural-language-processing/useLLM.md#configuring-the-model). They set the size of the batch before tokens are emitted and the maximum time interval between consecutive batches respectively. Each batch is emitted if either `timeInterval` elapses since last batch or `countInterval` number of tokens are generated. This allows for smooth generation even if model lags during generation. Default parameters are set to 10 tokens and 80ms for time interval (~12 batches per second).
 
+## Vision-Language Models (VLM)
+
+Some models support multimodal input — text and images together. To use them, pass a `capabilities` array when loading the model.
+
+### Loading a VLM
+
+```tsx
+import { useLLM, LFM2_5_VL_1_6B_QUANTIZED } from 'react-native-executorch';
+
+const llm = useLLM({ model: LFM2_5_VL_1_6B_QUANTIZED });
+```
+
+The `capabilities` field is already set on the model constant. You can also construct the model object explicitly:
+
+```tsx
+const llm = useLLM({
+  model: {
+    modelSource: '...',
+    tokenizerSource: '...',
+    tokenizerConfigSource: '...',
+    capabilities: ['vision'],
+  },
+});
+```
+
+Passing `capabilities` unlocks the typed `media` argument on `sendMessage`.
+
+### Sending a message with an image
+
+```tsx
+const llm = useLLM({ model: LFM2_5_VL_1_6B_QUANTIZED });
+
+const send = () => {
+  llm.sendMessage('What is in this image?', {
+    imagePath: '/path/to/image.jpg',
+  });
+};
+
+return (
+  <View>
+    <Button onPress={send} title="Send!" />
+    <Text>{llm.response}</Text>
+  </View>
+);
+```
+
+The `imagePath` should be a local file path on the device.
+
+### Functional generation with images
+
+You can also use `generate` directly by setting `mediaPath` on user messages:
+
+```tsx
+const llm = useLLM({ model: LFM2_5_VL_1_6B_QUANTIZED });
+
+const handleGenerate = async () => {
+  const chat: Message[] = [
+    {
+      role: 'user',
+      content: 'Describe this image.',
+      mediaPath: '/path/to/image.jpg',
+    },
+  ];
+
+  const response = await llm.generate(chat);
+  console.log(response);
+};
+```
+
 ## Available models
 
-| Model Family                                                                                                 |      Sizes       | Quantized |
-| ------------------------------------------------------------------------------------------------------------ | :--------------: | :-------: |
-| [Hammer 2.1](https://huggingface.co/software-mansion/react-native-executorch-hammer-2.1)                     |  0.5B, 1.5B, 3B  |    ✅     |
-| [Qwen 2.5](https://huggingface.co/software-mansion/react-native-executorch-qwen-2.5)                         |  0.5B, 1.5B, 3B  |    ✅     |
-| [Qwen 3](https://huggingface.co/software-mansion/react-native-executorch-qwen-3)                             |  0.6B, 1.7B, 4B  |    ✅     |
-| [Phi 4 Mini](https://huggingface.co/software-mansion/react-native-executorch-phi-4-mini)                     |        4B        |    ✅     |
-| [SmolLM 2](https://huggingface.co/software-mansion/react-native-executorch-smolLm-2)                         | 135M, 360M, 1.7B |    ✅     |
-| [LLaMA 3.2](https://huggingface.co/software-mansion/react-native-executorch-llama-3.2)                       |      1B, 3B      |    ✅     |
-| [LFM2.5-1.2B-Instruct](https://huggingface.co/software-mansion/react-native-executorch-lfm2.5-1.2B-instruct) |       1.2B       |    ✅     |
+| Model Family                                                                                                       |        Sizes        | Quantized | Capabilities |
+| ------------------------------------------------------------------------------------------------------------------ | :-----------------: | :-------: | :----------: |
+| [Hammer 2.1](https://huggingface.co/software-mansion/react-native-executorch-hammer-2.1)                           |   0.5B, 1.5B, 3B    |    ✅     |      -       |
+| [Qwen 2.5](https://huggingface.co/software-mansion/react-native-executorch-qwen-2.5)                               |   0.5B, 1.5B, 3B    |    ✅     |      -       |
+| [Qwen 3](https://huggingface.co/software-mansion/react-native-executorch-qwen-3)                                   |   0.6B, 1.7B, 4B    |    ✅     |      -       |
+| [Phi 4 Mini](https://huggingface.co/software-mansion/react-native-executorch-phi-4-mini)                           |         4B          |    ✅     |      -       |
+| [SmolLM 2](https://huggingface.co/software-mansion/react-native-executorch-smolLm-2)                               |  135M, 360M, 1.7B   |    ✅     |      -       |
+| [LLaMA 3.2](https://huggingface.co/software-mansion/react-native-executorch-llama-3.2)                             |       1B, 3B        |    ✅     |      -       |
+| [LFM2.5](https://huggingface.co/software-mansion/react-native-executorch-lfm-2.5)                                  | 350M, 1.2B, 1.6B-VL |    ✅     |      -       |
+| [LFM2.5-VL-450M](https://huggingface.co/software-mansion/react-native-executorch-lfm-2.5/tree/main/lfm2.5-VL-450M) |        450M         |    ✅     |    vision    |
+| [LFM2.5-VL-1.6B](https://huggingface.co/software-mansion/react-native-executorch-lfm-2.5/tree/main/lfm2.5-VL-1.6B) |        1.6B         |    ✅     |    vision    |

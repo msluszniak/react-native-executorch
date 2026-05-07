@@ -3,11 +3,11 @@ import {
   ImageEmbeddingsProps,
   ImageEmbeddingsType,
 } from '../../types/imageEmbeddings';
-import { useModule } from '../useModule';
+import { PixelData } from '../../types/common';
+import { useModuleFactory } from '../useModuleFactory';
 
 /**
  * React hook for managing an Image Embeddings model instance.
- *
  * @category Hooks
  * @param ImageEmbeddingsProps - Configuration object containing `model` source and optional `preventLoad` flag.
  * @returns Ready to use Image Embeddings model.
@@ -15,9 +15,31 @@ import { useModule } from '../useModule';
 export const useImageEmbeddings = ({
   model,
   preventLoad = false,
-}: ImageEmbeddingsProps): ImageEmbeddingsType =>
-  useModule({
-    module: ImageEmbeddingsModule,
-    model,
+}: ImageEmbeddingsProps): ImageEmbeddingsType => {
+  const {
+    error,
+    isReady,
+    isGenerating,
+    downloadProgress,
+    runForward,
+    runOnFrame,
+  } = useModuleFactory({
+    factory: (config, onProgress) =>
+      ImageEmbeddingsModule.fromModelName(config, onProgress),
+    config: model,
+    deps: [model.modelName, model.modelSource],
     preventLoad,
   });
+
+  const forward = (imageSource: string | PixelData) =>
+    runForward((inst) => inst.forward(imageSource));
+
+  return {
+    error,
+    isReady,
+    isGenerating,
+    downloadProgress,
+    forward,
+    runOnFrame,
+  };
+};

@@ -225,7 +225,7 @@ readImageToTensor(const std::string &path,
   if (tensorDims.size() < 2) {
     char errorMessage[100];
     std::snprintf(errorMessage, sizeof(errorMessage),
-                  "Unexpected tensor size, expected at least 2 dimentions "
+                  "Unexpected tensor size, expected at least 2 dimensions "
                   "but got: %zu.",
                   tensorDims.size());
     throw RnExecutorchError(RnExecutorchErrorCode::UnexpectedNumInputs,
@@ -248,6 +248,14 @@ readImageToTensor(const std::string &path,
             imageSize};
   }
   return {image_processing::getTensorFromMatrix(tensorDims, input), imageSize};
+}
+
+cv::Mat applySigmoid(const cv::Mat &logits) {
+  cv::Mat probMat;
+  cv::exp(-logits, probMat);
+  probMat = 255.0f / (1.0f + probMat);
+  probMat.convertTo(probMat, CV_8UC1);
+  return probMat;
 }
 } // namespace image_processing
 } // namespace rnexecutorch

@@ -7,22 +7,21 @@ TypeScript API implementation of the [useLLM](../../03-hooks/01-natural-language
 ## API Reference
 
 - For detailed API Reference for `LLMModule` see: [`LLMModule` API Reference](../../06-api-reference/classes/LLMModule.md).
-- For all LLM models available out-of-the-box in React Native ExecuTorch see: [LLM Models](../../06-api-reference/index.md#models---lmm).
+- For all LLM models available out-of-the-box in React Native ExecuTorch see: [LLM Models](../../06-api-reference/index.md#models---llm).
 - For useful LLM utility functionalities please refer to the following link: [LLM Utility Functionalities](../../06-api-reference/index.md#utilities---llm).
 
 ## High Level Overview
 
 ```typescript
-import { LLMModule, LLAMA3_2_1B_QLORA } from 'react-native-executorch';
+import { LLMModule, LFM2_5_1_2B_INSTRUCT } from 'react-native-executorch';
 
-// Creating an instance
-const llm = new LLMModule({
-  tokenCallback: (token) => console.log(token),
-  messageHistoryCallback: (messages) => console.log(messages),
-});
-
-// Loading the model
-await llm.load(LLAMA3_2_1B_QLORA, (progress) => console.log(progress));
+// Creating an instance and loading the model
+const llm = await LLMModule.fromModelName(
+  LFM2_5_1_2B_INSTRUCT,
+  (progress) => console.log(progress),
+  (token) => console.log(token),
+  (messages) => console.log(messages)
+);
 
 // Running the model - returns the generated response
 const response = await llm.sendMessage('Hello, World!');
@@ -41,30 +40,26 @@ All methods of `LLMModule` are explained in details here: [LLMModule API Referen
 
 ## Loading the model
 
-To create a new instance of `LLMModule`, use the [constructor](../../06-api-reference/classes/LLMModule.md#constructor) with optional callbacks:
+Use the static [`fromModelName`](../../06-api-reference/classes/LLMModule.md#frommodelname) factory method:
 
-- [`tokenCallback`](../../06-api-reference/classes/LLMModule.md#tokencallback) - Function called on every generated token.
+```typescript
+const llm = await LLMModule.fromModelName(
+  LFM2_5_1_2B_INSTRUCT, // model config constant
+  onDownloadProgress, // optional, progress 0–1
+  tokenCallback, // optional, called on every token
+  messageHistoryCallback // optional, called when generation finishes
+);
+```
 
-- [`messageHistoryCallback`](../../06-api-reference/classes/LLMModule.md#messagehistorycallback) - Function called on every finished message.
+The model config object contains `modelSource`, `tokenizerSource`, `tokenizerConfigSource`, and optional `capabilities`. Pass one of the built-in constants (e.g. `LFM2_5_1_2B_INSTRUCT`) or construct it manually.
 
-Then, to load the model, use the [`load`](../../06-api-reference/classes/LLMModule.md#load) method. It accepts an object with the following fields:
-
-- [`model`](../../06-api-reference/classes/LLMModule.md#model) - Object containing:
-  - [`modelSource`](../../06-api-reference/classes/LLMModule.md#modelsource) - The location of the used model.
-
-  - [`tokenizerSource`](../../06-api-reference/classes/LLMModule.md#tokenizersource) - The location of the used tokenizer.
-
-  - [`tokenizerConfigSource`](../../06-api-reference/classes/LLMModule.md#tokenizerconfigsource) - The location of the used tokenizer config.
-
-- [`onDownloadProgressCallback`](../../06-api-reference/classes/LLMModule.md#ondownloadprogresscallback) - Callback to track download progress.
-
-This method returns a promise, which can resolve to an error or void.
+This method returns a promise resolving to an `LLMModule` instance.
 
 For more information on loading resources, take a look at [loading models](../../01-fundamentals/02-loading-models.md) page.
 
 ## Listening for download progress
 
-To subscribe to the download progress event, you can pass the [`onDownloadProgressCallback`](../../06-api-reference/classes/LLMModule.md#ondownloadprogresscallback) function to the [`load`](../../06-api-reference/classes/LLMModule.md#load) method. This function is called whenever the download progress changes.
+To subscribe to the download progress event, you can pass the `onDownloadProgress` callback as the second argument to [`fromModelName`](../../06-api-reference/classes/LLMModule.md#frommodelname). This function is called whenever the download progress changes.
 
 ## Running the model
 
@@ -112,7 +107,84 @@ To configure model (i.e. change system prompt, load initial conversation history
 
   - [`temperature`](../../06-api-reference/interfaces/GenerationConfig.md#temperature) - Scales output logits by the inverse of temperature. Controls the randomness / creativity of text generation.
 
-  - [`topp`](../../06-api-reference/interfaces/GenerationConfig.md#topp) - Only samples from the smallest set of tokens whose cumulative probability exceeds topp.
+  - [`topP`](../../06-api-reference/interfaces/GenerationConfig.md#topp) - Only samples from the smallest set of tokens whose cumulative probability exceeds topP. Range `[0, 1]`. Values of `0` or `1` disable top-p filtering.
+
+  - [`minP`](../../06-api-reference/interfaces/GenerationConfig.md#minp) - Minimum-probability threshold applied after softmax: tokens whose probability is below `minP * max_prob` are excluded from sampling. Range `[0, 1]`. Default `0` disables the filter. Stacks with `topP` when both are set.
+
+  - [`repetitionPenalty`](../../06-api-reference/interfaces/GenerationConfig.md#repetitionpenalty) - Multiplicative penalty applied to logits of tokens that already appeared in the prompt or the generated text. Values greater than `1` discourage repetition; default `1` disables the penalty.
+
+:::info[Built-in models ship with sampling defaults]
+Model presets expose an optional `generationConfig` that `LLMModule.fromModelName` applies automatically when available — for Qwen3 and LFM2-VL this means the model-card recommended sampling settings are in effect without any explicit `configure` call. Any fields you pass to `configure` still override on a per-field basis.
+:::
+
+## Vision-Language Models (VLM)
+
+Some models support multimodal input — text and images together. To use them, pass `capabilities` in the model object when calling [`fromModelName`](../../06-api-reference/classes/LLMModule.md#frommodelname):
+
+```typescript
+import { LLMModule, LFM2_5_VL_1_6B_QUANTIZED } from 'react-native-executorch';
+
+const llm = await LLMModule.fromModelName(
+  LFM2_5_VL_1_6B_QUANTIZED,
+  undefined,
+  (token) => console.log(token)
+);
+```
+
+The `capabilities` field is already set on the model constant. You can also construct the model object explicitly:
+
+```typescript
+const llm = await LLMModule.fromModelName({
+  modelName: 'lfm2.5-vl-1.6b-quantized',
+  modelSource: require('./path/to/model.pte'),
+  tokenizerSource: require('./path/to/tokenizer.json'),
+  tokenizerConfigSource: require('./path/to/tokenizer_config.json'),
+  capabilities: ['vision'],
+});
+```
+
+Once loaded, pass `imagePath` to [`sendMessage`](../../06-api-reference/classes/LLMModule.md#sendmessage):
+
+```typescript
+const response = await llm.sendMessage('What is in this image?', {
+  imagePath: '/path/to/image.jpg',
+});
+```
+
+Or use [`generate`](../../06-api-reference/classes/LLMModule.md#generate) with `mediaPath` on the message:
+
+```typescript
+const chat: Message[] = [
+  {
+    role: 'user',
+    content: 'Describe this image.',
+    mediaPath: '/path/to/image.jpg',
+  },
+];
+
+const response = await llm.generate(chat);
+```
+
+## Using a custom model
+
+Use [`fromCustomModel`](../../06-api-reference/classes/LLMModule.md#fromcustommodel) to load your own exported LLM instead of a built-in preset:
+
+```typescript
+import { LLMModule } from 'react-native-executorch';
+
+const llm = await LLMModule.fromCustomModel(
+  'https://example.com/model.pte',
+  'https://example.com/tokenizer.json',
+  'https://example.com/tokenizer_config.json',
+  (progress) => console.log(progress),
+  (token) => console.log(token),
+  (messages) => console.log(messages)
+);
+```
+
+### Required model contract
+
+The `.pte` model binary must be exported following the [ExecuTorch LLM export process](https://docs.pytorch.org/executorch/1.1/llm/export-llm.html). The native runner expects the standard ExecuTorch text-generation interface — KV-cache management, prefill/decode phases, and logit sampling are all handled by the runtime.
 
 ## Deleting the model from memory
 

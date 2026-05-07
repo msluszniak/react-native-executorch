@@ -6,14 +6,13 @@ import {
   ObjectDetectionModelSources,
   ObjectDetectionProps,
   ObjectDetectionType,
+  ObjectDetectionOptions,
 } from '../../types/objectDetection';
-import { useMemo } from 'react';
 import { PixelData } from '../../types/common';
 import { useModuleFactory } from '../useModuleFactory';
 
 /**
  * React hook for managing an Object Detection model instance.
- *
  * @typeParam C - A {@link ObjectDetectionModelSources} config specifying which built-in model to load.
  * @category Hooks
  * @param props - Configuration object containing `model` config and optional `preventLoad` flag.
@@ -31,18 +30,23 @@ export const useObjectDetection = <C extends ObjectDetectionModelSources>({
     isGenerating,
     downloadProgress,
     runForward,
+    runOnFrame,
     instance,
   } = useModuleFactory({
     factory: (config, onProgress) =>
       ObjectDetectionModule.fromModelName(config, onProgress),
     config: model,
+    deps: [model.modelName, model.modelSource],
     preventLoad,
   });
 
-  const forward = (input: string | PixelData, detectionThreshold?: number) =>
-    runForward((inst) => inst.forward(input, detectionThreshold));
+  const forward = (
+    input: string | PixelData,
+    options?: ObjectDetectionOptions<ObjectDetectionLabels<C['modelName']>>
+  ) => runForward((inst) => inst.forward(input, options));
 
-  const runOnFrame = useMemo(() => instance?.runOnFrame ?? null, [instance]);
+  const getAvailableInputSizes = () =>
+    instance?.getAvailableInputSizes() ?? undefined;
 
   return {
     error,
@@ -51,5 +55,6 @@ export const useObjectDetection = <C extends ObjectDetectionModelSources>({
     downloadProgress,
     forward,
     runOnFrame,
+    getAvailableInputSizes,
   };
 };

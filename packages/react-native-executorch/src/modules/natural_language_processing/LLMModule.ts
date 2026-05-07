@@ -1,34 +1,27 @@
 import { LLMController } from '../../controllers/LLMController';
+import { Logger } from '../../common/Logger';
+import { parseUnknownError } from '../../errors/errorUtils';
 import { ResourceSource } from '../../types/common';
-import { LLMConfig, LLMTool, Message } from '../../types/llm';
+import {
+  LLMCapability,
+  LLMConfig,
+  LLMModelName,
+  LLMTool,
+  Message,
+} from '../../types/llm';
 
 /**
  * Module for managing a Large Language Model (LLM) instance.
- *
  * @category Typescript API
  */
 export class LLMModule {
   private controller: LLMController;
-  private pendingConfig?: LLMConfig;
 
-  /**
-   * Creates a new instance of `LLMModule` with optional callbacks.
-   * @param optionalCallbacks - Object containing optional callbacks.
-   *
-   * @returns A new LLMModule instance.
-   */
-  constructor({
+  private constructor({
     tokenCallback,
     messageHistoryCallback,
   }: {
-    /**
-     * An optional function that will be called on every generated token (`string`) with that token as its only argument.
-     */
     tokenCallback?: (token: string) => void;
-    /**
-     * An optional function called on every finished message (`Message[]`).
-     * Returns the entire message history.
-     */
     messageHistoryCallback?: (messageHistory: Message[]) => void;
   } = {}) {
     this.controller = new LLMController({
@@ -38,36 +31,89 @@ export class LLMModule {
   }
 
   /**
-   * Loads the LLM model and tokenizer.
-   *
-   * @param model - Object containing model, tokenizer, and tokenizer config sources.
-   * @param model.modelSource - `ResourceSource` that specifies the location of the model binary.
-   * @param model.tokenizerSource - `ResourceSource` pointing to the JSON file which contains the tokenizer.
-   * @param model.tokenizerConfigSource - `ResourceSource` pointing to the JSON file which contains the tokenizer config.
-   * @param onDownloadProgressCallback - Optional callback to track download progress (value between 0 and 1).
+   * Creates an LLM instance for a built-in model.
+   * @param namedSources - An object specifying the model name, model source, tokenizer source,
+   *   tokenizer config source, and optional capabilities.
+   * @param onDownloadProgress - Optional callback to monitor download progress, receiving a value between 0 and 1.
+   * @param tokenCallback - Optional callback invoked on every generated token.
+   * @param messageHistoryCallback - Optional callback invoked when the model finishes a response, with the full message history.
+   * @returns A Promise resolving to an `LLMModule` instance.
+   * @example
+   * ```ts
+   * import { LLMModule, LLAMA3_2_3B } from 'react-native-executorch';
+   * const llm = await LLMModule.fromModelName(LLAMA3_2_3B);
+   * ```
    */
-  async load(
-    model: {
+  static async fromModelName(
+    namedSources: {
+      modelName: LLMModelName;
       modelSource: ResourceSource;
       tokenizerSource: ResourceSource;
       tokenizerConfigSource: ResourceSource;
+      capabilities?: readonly LLMCapability[];
     },
-    onDownloadProgressCallback: (progress: number) => void = () => {}
-  ) {
-    await this.controller.load({
-      ...model,
-      onDownloadProgressCallback,
-    });
-
-    if (this.pendingConfig) {
-      this.controller.configure(this.pendingConfig);
-      this.pendingConfig = undefined;
+    onDownloadProgress: (progress: number) => void = () => {},
+    tokenCallback?: (token: string) => void,
+    messageHistoryCallback?: (messageHistory: Message[]) => void
+  ): Promise<LLMModule> {
+    const instance = new LLMModule({ tokenCallback, messageHistoryCallback });
+    try {
+      await instance.controller.load({
+        modelSource: namedSources.modelSource,
+        tokenizerSource: namedSources.tokenizerSource,
+        tokenizerConfigSource: namedSources.tokenizerConfigSource,
+        capabilities: namedSources.capabilities,
+        onDownloadProgressCallback: onDownloadProgress,
+      });
+      return instance;
+    } catch (error) {
+      Logger.error('Load failed:', error);
+      throw parseUnknownError(error);
     }
   }
 
   /**
-   * Sets new token callback invoked on every token batch.
+   * Creates an LLM instance with a user-provided model binary.
+   * Use this when working with a custom-exported LLM.
+   * Internally uses `'custom'` as the model name for telemetry.
    *
+   * ## Required model contract
+   *
+   * The `.pte` model binary must be exported following the
+   * [ExecuTorch LLM export process](https://docs.pytorch.org/executorch/1.1/llm/export-llm.html).
+   * The native runner expects the standard ExecuTorch text-generation interface — KV-cache
+   * management, prefill/decode phases, and logit sampling are all handled by the runtime.
+   * @param modelSource - A fetchable resource pointing to the model binary.
+   * @param tokenizerSource - A fetchable resource pointing to the tokenizer JSON file.
+   * @param tokenizerConfigSource - A fetchable resource pointing to the tokenizer config JSON file.
+   * @param onDownloadProgress - Optional callback to monitor download progress, receiving a value between 0 and 1.
+   * @param tokenCallback - Optional callback invoked on every generated token.
+   * @param messageHistoryCallback - Optional callback invoked when the model finishes a response, with the full message history.
+   * @returns A Promise resolving to an `LLMModule` instance.
+   */
+  static fromCustomModel(
+    modelSource: ResourceSource,
+    tokenizerSource: ResourceSource,
+    tokenizerConfigSource: ResourceSource,
+    onDownloadProgress: (progress: number) => void = () => {},
+    tokenCallback?: (token: string) => void,
+    messageHistoryCallback?: (messageHistory: Message[]) => void
+  ): Promise<LLMModule> {
+    return LLMModule.fromModelName(
+      {
+        modelName: 'custom' as LLMModelName,
+        modelSource,
+        tokenizerSource,
+        tokenizerConfigSource,
+      },
+      onDownloadProgress,
+      tokenCallback,
+      messageHistoryCallback
+    );
+  }
+
+  /**
+   * Sets new token callback invoked on every token batch.
    * @param tokenCallback - Callback function to handle new tokens.
    */
   setTokenCallback({
@@ -81,15 +127,10 @@ export class LLMModule {
   /**
    * Configures chat and tool calling and generation settings.
    * See [Configuring the model](https://docs.swmansion.com/react-native-executorch/docs/hooks/natural-language-processing/useLLM#configuring-the-model) for details.
-   *
    * @param config - Configuration object containing `chatConfig`, `toolsConfig`, and `generationConfig`.
    */
   configure(config: LLMConfig) {
-    if (this.controller.isReady) {
-      this.controller.configure(config);
-    } else {
-      this.pendingConfig = config;
-    }
+    this.controller.configure(config);
   }
 
   /**
@@ -97,18 +138,18 @@ export class LLMModule {
    * You need to provide entire conversation and prompt (in correct format and with special tokens!) in input string to this method.
    * It doesn't manage conversation context. It is intended for users that need access to the model itself without any wrapper.
    * If you want a simple chat with model the consider using `sendMessage`
-   *
    * @param input - Raw input string containing the prompt and conversation history.
+   * @param imagePaths - Optional array of local image paths for multimodal inference. Each entry may be either `file:///absolute/path` or `/absolute/path` — the controller normalizes the path before passing it to native code.
    * @returns The generated response as a string.
    */
-  async forward(input: string): Promise<string> {
-    return await this.controller.forward(input);
+  async forward(input: string, imagePaths?: string[]): Promise<string> {
+    return await this.controller.forward(input, imagePaths);
   }
 
   /**
    * Runs model to complete chat passed in `messages` argument. It doesn't manage conversation context.
-   *
-   * @param messages - Array of messages representing the chat history.
+   * For multimodal models, set `mediaPath` on user messages to include images.
+   * @param messages - Array of messages representing the chat history. User messages may include a `mediaPath` field with a local image path.
    * @param tools - Optional array of tools that can be used during generation.
    * @returns The generated response as a string.
    */
@@ -120,12 +161,15 @@ export class LLMModule {
    * Method to add user message to conversation.
    * After model responds it will call `messageHistoryCallback()` containing both user message and model response.
    * It also returns them.
-   *
    * @param message - The message string to send.
+   * @param media - Optional media object containing a local image path for multimodal models.
    * @returns - Updated message history including the new user message and model response.
    */
-  async sendMessage(message: string): Promise<Message[]> {
-    await this.controller.sendMessage(message);
+  async sendMessage(
+    message: string,
+    media?: { imagePath?: string }
+  ): Promise<Message[]> {
+    await this.controller.sendMessage(message, media);
     return this.controller.messageHistory;
   }
 
@@ -133,7 +177,6 @@ export class LLMModule {
    * Deletes all messages starting with message on `index` position.
    * After deletion it will call `messageHistoryCallback()` containing new history.
    * It also returns it.
-   *
    * @param index - The index of the message to delete from history.
    * @returns - Updated message history after deletion.
    */
@@ -151,7 +194,6 @@ export class LLMModule {
 
   /**
    * Returns the number of tokens generated in the last response.
-   *
    * @returns The count of generated tokens.
    */
   getGeneratedTokenCount(): number {
@@ -160,7 +202,6 @@ export class LLMModule {
 
   /**
    * Returns the number of prompt tokens in the last message.
-   *
    * @returns The count of prompt token.
    */
   getPromptTokensCount() {
@@ -169,7 +210,6 @@ export class LLMModule {
 
   /**
    * Returns the number of total tokens from the previous generation. This is a sum of prompt tokens and generated tokens.
-   *
    * @returns The count of prompt and generated tokens.
    */
   getTotalTokensCount() {

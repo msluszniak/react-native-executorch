@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { RnExecutorchErrorCode } from '../errors/ErrorCodes';
 import { RnExecutorchError, parseUnknownError } from '../errors/errorUtils';
 
 type Deletable = { delete: () => void };
+
+type RunOnFrame<M> = M extends { runOnFrame: infer R } ? R : never;
 
 /**
  * Shared hook for modules that are instantiated via an async static factory
@@ -11,15 +13,14 @@ type Deletable = { delete: () => void };
  * Handles model loading, download progress, error state, and enforces the
  * not-loaded / already-generating guards so individual hooks only need to
  * define their typed `forward` wrapper.
- *
+ * @param props - Options object containing the factory function, config, deps array, and optional preventLoad flag.
+ * @returns An object with error, isReady, isGenerating, downloadProgress, runForward, instance, and runOnFrame.
  * @internal
  */
-export function useModuleFactory<
-  M extends Deletable,
-  Config extends { modelName: string; modelSource: unknown },
->({
+export function useModuleFactory<M extends Deletable, Config>({
   factory,
   config,
+  deps,
   preventLoad = false,
 }: {
   factory: (
@@ -27,6 +28,7 @@ export function useModuleFactory<
     onProgress: (progress: number) => void
   ) => Promise<M>;
   config: Config;
+  deps: ReadonlyArray<unknown>;
   preventLoad?: boolean;
 }) {
   const [error, setError] = useState<RnExecutorchError | null>(null);
@@ -38,27 +40,39 @@ export function useModuleFactory<
   useEffect(() => {
     if (preventLoad) return;
 
-    let currentInstance: M | null = null;
+    let active = true;
+    setDownloadProgress(0);
+    setError(null);
+    setIsReady(false);
 
-    (async () => {
-      setDownloadProgress(0);
-      setError(null);
-      setIsReady(false);
-      try {
-        currentInstance = await factory(config, setDownloadProgress);
-        setInstance(currentInstance);
+    factory(config, (p) => {
+      if (active) setDownloadProgress(p);
+    })
+      .then((mod) => {
+        if (!active) {
+          mod.delete();
+          return;
+        }
+        setInstance((prev) => {
+          prev?.delete();
+          return mod;
+        });
         setIsReady(true);
-      } catch (err) {
-        setError(parseUnknownError(err));
-      }
-    })();
+      })
+      .catch((err) => {
+        if (active) setError(parseUnknownError(err));
+      });
 
     return () => {
-      currentInstance?.delete();
+      active = false;
+      setInstance((prev) => {
+        prev?.delete();
+        return null;
+      });
     };
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.modelName, config.modelSource, preventLoad]);
+  }, [...deps, preventLoad]);
 
   const runForward = async <R>(fn: (instance: M) => Promise<R>): Promise<R> => {
     if (!isReady || !instance) {
@@ -81,6 +95,14 @@ export function useModuleFactory<
     }
   };
 
+  const runOnFrame = useMemo(
+    () =>
+      instance && 'runOnFrame' in instance
+        ? (instance.runOnFrame as RunOnFrame<M> | null)
+        : null,
+    [instance]
+  );
+
   return {
     error,
     isReady,
@@ -88,5 +110,6 @@ export function useModuleFactory<
     downloadProgress,
     runForward,
     instance,
+    runOnFrame,
   };
 }

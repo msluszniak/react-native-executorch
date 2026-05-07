@@ -12,12 +12,26 @@ import {
 } from 'react-native';
 import SendIcon from '../../assets/icons/send_icon.svg';
 import { useLLM, LLAMA3_2_1B_SPINQUANT } from 'react-native-executorch';
+import { ModelPicker } from '../../components/ModelPicker';
+import { LLM_MODELS, LLMModelSources } from '../../components/llmModels';
 import PauseIcon from '../../assets/icons/pause_icon.svg';
 import ColorPalette from '../../colors';
 import Messages from '../../components/Messages';
 import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeneratingContext } from '../../context';
 import Spinner from '../../components/Spinner';
+import SuggestedPrompts from '../../components/SuggestedPrompts';
+
+const SUGGESTED_PROMPTS = [
+  'Explain quantum computing in simple terms',
+  'Write a short poem about coding',
+  'What are the benefits of on-device AI?',
+  'Give me 3 fun facts about space',
+];
+import { useLLMStats } from '../../hooks/useLLMStats';
+import { StatsBar } from '../../components/StatsBar';
+import ErrorBanner from '../../components/ErrorBanner';
 
 export default function LLMScreenWrapper() {
   const isFocused = useIsFocused();
@@ -25,17 +39,26 @@ export default function LLMScreenWrapper() {
 }
 
 function LLMScreen() {
+  const { bottom } = useSafeAreaInsets();
   const [isTextInputFocused, setIsTextInputFocused] = useState(false);
   const [userInput, setUserInput] = useState('');
+  const [selectedModel, setSelectedModel] = useState<LLMModelSources>(
+    LLAMA3_2_1B_SPINQUANT
+  );
   const textInputRef = useRef<TextInput>(null);
   const { setGlobalGenerating } = useContext(GeneratingContext);
 
-  const llm = useLLM({ model: LLAMA3_2_1B_SPINQUANT });
+  const llm = useLLM({ model: selectedModel });
+  const tokenCount = llm.isReady ? llm.getGeneratedTokenCount() : 0;
+  const { stats, onMessageSend } = useLLMStats(
+    llm.response,
+    llm.isGenerating,
+    tokenCount
+  );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (llm.error) {
-      console.error('LLM error:', llm.error);
-    }
+    if (llm.error) setError(String(llm.error));
   }, [llm.error]);
 
   useEffect(() => {
@@ -43,31 +66,31 @@ function LLMScreen() {
   }, [llm.isGenerating, setGlobalGenerating]);
 
   const sendMessage = async () => {
+    onMessageSend();
     setUserInput('');
     textInputRef.current?.clear();
     try {
       await llm.sendMessage(userInput);
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  return !llm.isReady ? (
+  return !llm.isReady && !llm.error ? (
     <Spinner
-      visible={!llm.isReady}
+      visible={true}
       textContent={`Loading the model ${(llm.downloadProgress * 100).toFixed(0)} %`}
     />
   ) : (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <KeyboardAvoidingView
-        style={{
-          ...styles.container,
-        }}
+        style={styles.container}
         collapsable={false}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 120 : 40}
       >
         <View style={styles.container}>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
           {llm.messageHistory.length ? (
             <View style={styles.chatContainer}>
               <Messages
@@ -83,10 +106,29 @@ function LLMScreen() {
               <Text style={styles.bottomHelloText}>
                 What can I help you with?
               </Text>
+              <SuggestedPrompts
+                prompts={SUGGESTED_PROMPTS}
+                onSelect={setUserInput}
+              />
             </View>
           )}
 
-          <View style={styles.bottomContainer}>
+          <ModelPicker
+            models={LLM_MODELS}
+            selectedModel={selectedModel}
+            onSelect={(m) => setSelectedModel(m)}
+            disabled={llm.isGenerating}
+          />
+          <StatsBar stats={stats} />
+          <View
+            style={[
+              styles.bottomContainer,
+              Platform.OS === 'android' && {
+                paddingBottom: bottom || 16,
+                height: 100 + (bottom || 16),
+              },
+            ]}
+          >
             <TextInput
               autoCorrect={false}
               onFocus={() => setIsTextInputFocused(true)}
@@ -101,6 +143,7 @@ function LLMScreen() {
               placeholderTextColor={'#C1C6E5'}
               multiline={true}
               ref={textInputRef}
+              value={userInput}
               onChangeText={(text: string) => setUserInput(text)}
             />
             {userInput && (
@@ -138,6 +181,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   helloText: {
     fontFamily: 'medium',

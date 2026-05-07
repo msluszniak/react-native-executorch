@@ -2,15 +2,29 @@ import { ResourceSource } from './common';
 import { RnExecutorchError } from '../errors/errorUtils';
 
 /**
+ * Named Speech to Text model variants.
+ * @category Types
+ */
+export type SpeechToTextModelName =
+  | 'whisper-tiny-en'
+  | 'whisper-tiny-en-quantized'
+  | 'whisper-base-en'
+  | 'whisper-base-en-quantized'
+  | 'whisper-small-en'
+  | 'whisper-small-en-quantized'
+  | 'whisper-tiny'
+  | 'whisper-base'
+  | 'whisper-small';
+
+/**
  * Configuration for Speech to Text model.
- *
  * @category Types
  */
 export interface SpeechToTextProps {
   /**
    * Configuration object containing model sources.
    */
-  model: SpeechToTextModelConfig;
+  model: SpeechToTextModelConfig; // | ...
   /**
    * Boolean that can prevent automatic model loading (and downloading the data if you load it for the first time) after running the hook.
    */
@@ -19,7 +33,6 @@ export interface SpeechToTextProps {
 
 /**
  * React hook for managing Speech to Text (STT) instance.
- *
  * @category Types
  */
 export interface SpeechToTextType {
@@ -104,7 +117,6 @@ export interface SpeechToTextType {
 
 /**
  * Languages supported by whisper (not whisper.en)
- *
  * @category Types
  */
 export type SpeechToTextLanguage =
@@ -186,7 +198,6 @@ export type SpeechToTextLanguage =
 
 /**
  * Options for decoding speech to text.
- *
  * @category Types
  * @property {SpeechToTextLanguage} [language] - Optional language code to guide the transcription.
  * @property {boolean} [verbose] - Optional flag. If set, transcription result is presented with timestamps
@@ -199,7 +210,6 @@ export interface DecodingOptions {
 
 /**
  * Structure that represent single token with timestamp information.
- *
  * @category Types
  * @property {string} [word] - Token as a string value.
  * @property {number} [start] - Timestamp of the beginning of the token in audio (in seconds).
@@ -213,7 +223,6 @@ export interface Word {
 
 /**
  * Structure that represent single Segment of transcription.
- *
  * @category Types
  * @property {number} [start] - Timestamp of the beginning of the segment in audio (in seconds).
  * @property {number} [end] - Timestamp of the end of the segment in audio (in seconds).
@@ -238,7 +247,6 @@ export interface TranscriptionSegment {
 
 /**
  * Structure that represent result of transcription for a one function call (either `transcribe` or `stream`).
- *
  * @category Types
  * @property {'transcribe' | 'stream'} [task] - String indicating task, either 'transcribe' or 'stream'.
  * @property {string} [language] - Language chosen for transcription.
@@ -257,24 +265,26 @@ export interface TranscriptionResult {
 
 /**
  * Configuration for Speech to Text model.
- *
  * @category Types
  */
 export interface SpeechToTextModelConfig {
+  /**
+   * The built-in model name (e.g. `'whisper-tiny-en'`). Used for telemetry and hook reload triggers.
+   * Pass one of the pre-built STT constants (e.g. `WHISPER_TINY_EN`) to populate all required fields.
+   */
+  modelName: SpeechToTextModelName;
+
   /**
    * A boolean flag indicating whether the model supports multiple languages.
    */
   isMultilingual: boolean;
 
   /**
-   * A string that specifies the location of a `.pte` file for the encoder.
+   * A string that specifies the location of a `.pte` file for the model.
+   *
+   * We expect the model to have 2 bundled methods: 'decode' and 'encode'.
    */
-  encoderSource: ResourceSource;
-
-  /**
-   * A string that specifies the location of a `.pte` file for the decoder.
-   */
-  decoderSource: ResourceSource;
+  modelSource: ResourceSource;
 
   /**
    * A string that specifies the location to the tokenizer for the model.

@@ -1,13 +1,13 @@
 #include "BaseSemanticSegmentation.h"
 #include "jsi/jsi.h"
 
-#include <future>
-
 #include <executorch/extension/tensor/tensor.h>
 #include <rnexecutorch/Error.h>
 #include <rnexecutorch/Log.h>
 #include <rnexecutorch/data_processing/ImageProcessing.h>
 #include <rnexecutorch/models/BaseModel.h>
+#include <rnexecutorch/utils/FrameProcessor.h>
+#include <rnexecutorch/utils/FrameTransform.h>
 
 namespace rnexecutorch::models::semantic_segmentation {
 
@@ -15,7 +15,8 @@ BaseSemanticSegmentation::BaseSemanticSegmentation(
     const std::string &modelSource, std::vector<float> normMean,
     std::vector<float> normStd, std::vector<std::string> allClasses,
     std::shared_ptr<react::CallInvoker> callInvoker)
-    : BaseModel(modelSource, callInvoker), allClasses_(std::move(allClasses)) {
+    : VisionModel(modelSource, callInvoker),
+      allClasses_(std::move(allClasses)) {
   initModelImageSize();
   if (normMean.size() == 3) {
     normMean_ = cv::Scalar(normMean[0], normMean[1], normMean[2]);
@@ -37,46 +38,103 @@ void BaseSemanticSegmentation::initModelImageSize() {
     throw RnExecutorchError(RnExecutorchErrorCode::UnexpectedNumInputs,
                             "Model seems to not take any input tensors.");
   }
-  std::vector<int32_t> modelInputShape = inputShapes[0];
-  if (modelInputShape.size() < 2) {
+  modelInputShape_ = inputShapes[0];
+  if (modelInputShape_.size() < 2) {
     throw RnExecutorchError(RnExecutorchErrorCode::WrongDimensions,
                             "Unexpected model input size, expected at least 2 "
                             "dimensions but got: " +
-                                std::to_string(modelInputShape.size()) + ".");
+                                std::to_string(modelInputShape_.size()) + ".");
   }
-  modelImageSize = cv::Size(modelInputShape[modelInputShape.size() - 1],
-                            modelInputShape[modelInputShape.size() - 2]);
-  numModelPixels = modelImageSize.area();
+  numModelPixels = modelInputSize().area();
 }
 
-TensorPtr BaseSemanticSegmentation::preprocess(const std::string &imageSource,
-                                               cv::Size &originalSize) {
-  auto [inputTensor, origSize] = image_processing::readImageToTensor(
-      imageSource, getAllInputShapes()[0], false, normMean_, normStd_);
-  originalSize = origSize;
-  return inputTensor;
-}
+semantic_segmentation::SegmentationResult
+BaseSemanticSegmentation::runInference(
+    cv::Mat image, cv::Size originalSize,
+    std::set<std::string, std::less<>> &classesOfInterest, bool resize) {
+  std::scoped_lock lock(inference_mutex_);
 
-std::shared_ptr<jsi::Object> BaseSemanticSegmentation::generate(
-    std::string imageSource,
-    std::set<std::string, std::less<>> classesOfInterest, bool resize) {
-
-  cv::Size originalSize;
-  auto inputTensor = preprocess(imageSource, originalSize);
+  cv::Mat preprocessed = VisionModel::preprocess(image);
+  auto inputTensor =
+      (normMean_ && normStd_)
+          ? image_processing::getTensorFromMatrix(
+                modelInputShape_, preprocessed, *normMean_, *normStd_)
+          : image_processing::getTensorFromMatrix(modelInputShape_,
+                                                  preprocessed);
 
   auto forwardResult = BaseModel::forward(inputTensor);
-
   if (!forwardResult.ok()) {
     throw RnExecutorchError(forwardResult.error(),
                             "The model's forward function did not succeed. "
                             "Ensure the model input is correct.");
   }
 
-  return postprocess(forwardResult->at(0).toTensor(), originalSize, allClasses_,
-                     classesOfInterest, resize);
+  return computeResult(forwardResult->at(0).toTensor(), originalSize,
+                       allClasses_, classesOfInterest, resize);
 }
 
-std::shared_ptr<jsi::Object> BaseSemanticSegmentation::postprocess(
+semantic_segmentation::SegmentationResult
+BaseSemanticSegmentation::generateFromString(
+    std::string imageSource,
+    std::set<std::string, std::less<>> classesOfInterest, bool resize) {
+  cv::Mat imageBGR = image_processing::readImage(imageSource);
+  cv::Size originalSize = imageBGR.size();
+  cv::Mat imageRGB;
+  cv::cvtColor(imageBGR, imageRGB, cv::COLOR_BGR2RGB);
+
+  return runInference(imageRGB, originalSize, classesOfInterest, resize);
+}
+
+semantic_segmentation::SegmentationResult
+BaseSemanticSegmentation::generateFromPixels(
+    JSTensorViewIn pixelData,
+    std::set<std::string, std::less<>> classesOfInterest, bool resize) {
+  cv::Mat image = extractFromPixels(pixelData);
+  return runInference(image, image.size(), classesOfInterest, resize);
+}
+
+semantic_segmentation::SegmentationResult
+BaseSemanticSegmentation::generateFromFrame(
+    jsi::Runtime &runtime, const jsi::Value &frameData,
+    std::set<std::string, std::less<>> classesOfInterest, bool resize) {
+  auto orient = ::rnexecutorch::utils::readFrameOrientation(runtime, frameData);
+  cv::Mat frame = extractFromFrame(runtime, frameData);
+  cv::Mat rotated = utils::rotateFrameForModel(frame, orient);
+  // Always run inference without resize — rotate first, then resize.
+  auto result = runInference(rotated, rotated.size(), classesOfInterest, false);
+
+  const cv::Size outputSize = modelInputSize();
+  // JS reads maskW=frame.height, maskH=frame.width (sensor-native swap).
+  const cv::Size frameSize = frame.size();
+
+  auto inverseAndResize = [&orient, &frameSize, &outputSize,
+                           resize](std::shared_ptr<OwningArrayBuffer> &buf,
+                                   int32_t cvType, int32_t interpFlag) {
+    cv::Mat m(outputSize, cvType, buf->data());
+    cv::Mat inv = utils::inverseRotateMat(m, orient);
+    if (resize && inv.size() != frameSize) {
+      cv::resize(inv, inv, frameSize, 0, 0, interpFlag);
+    }
+    buf = std::make_shared<OwningArrayBuffer>(
+        inv.data, static_cast<size_t>(inv.total() * inv.elemSize()));
+  };
+
+  if (outputSize.area() > 0) {
+    if (result.argmax) {
+      inverseAndResize(result.argmax, CV_32SC1, cv::INTER_NEAREST);
+    }
+    if (result.classBuffers) {
+      for (auto &[label, buf] : *result.classBuffers) {
+        inverseAndResize(buf, CV_32FC1, cv::INTER_LINEAR);
+      }
+    }
+  }
+
+  return result;
+}
+
+semantic_segmentation::SegmentationResult
+BaseSemanticSegmentation::computeResult(
     const Tensor &tensor, cv::Size originalSize,
     std::vector<std::string> &allClasses,
     std::set<std::string, std::less<>> &classesOfInterest, bool resize) {
@@ -160,11 +218,12 @@ std::shared_ptr<jsi::Object> BaseSemanticSegmentation::postprocess(
     }
   }
 
-  // Filter classes of interest
-  auto buffersToReturn = std::make_shared<std::unordered_map<
-      std::string_view, std::shared_ptr<OwningArrayBuffer>>>();
+  auto buffersToReturn = std::make_shared<
+      std::unordered_map<std::string, std::shared_ptr<OwningArrayBuffer>>>();
+  bool returnAllClasses = classesOfInterest.empty();
   for (std::size_t cl = 0; cl < resultClasses.size(); ++cl) {
-    if (cl < allClasses.size() && classesOfInterest.contains(allClasses[cl])) {
+    if (cl < allClasses.size() &&
+        (returnAllClasses || classesOfInterest.contains(allClasses[cl]))) {
       (*buffersToReturn)[allClasses[cl]] = resultClasses[cl];
     }
   }
@@ -185,48 +244,7 @@ std::shared_ptr<jsi::Object> BaseSemanticSegmentation::postprocess(
     }
   }
 
-  return populateDictionary(argmax, buffersToReturn);
-}
-
-std::shared_ptr<jsi::Object> BaseSemanticSegmentation::populateDictionary(
-    std::shared_ptr<OwningArrayBuffer> argmax,
-    std::shared_ptr<std::unordered_map<std::string_view,
-                                       std::shared_ptr<OwningArrayBuffer>>>
-        classesToOutput) {
-  auto promisePtr = std::make_shared<std::promise<void>>();
-  std::future<void> doneFuture = promisePtr->get_future();
-
-  std::shared_ptr<jsi::Object> dictPtr = nullptr;
-  callInvoker->invokeAsync(
-      [argmax, classesToOutput, &dictPtr, promisePtr](jsi::Runtime &runtime) {
-        dictPtr = std::make_shared<jsi::Object>(runtime);
-        auto argmaxArrayBuffer = jsi::ArrayBuffer(runtime, argmax);
-
-        auto int32ArrayCtor =
-            runtime.global().getPropertyAsFunction(runtime, "Int32Array");
-        auto int32Array =
-            int32ArrayCtor.callAsConstructor(runtime, argmaxArrayBuffer)
-                .getObject(runtime);
-        dictPtr->setProperty(runtime, "ARGMAX", int32Array);
-
-        for (auto &[classLabel, owningBuffer] : *classesToOutput) {
-          auto classArrayBuffer = jsi::ArrayBuffer(runtime, owningBuffer);
-
-          auto float32ArrayCtor =
-              runtime.global().getPropertyAsFunction(runtime, "Float32Array");
-          auto float32Array =
-              float32ArrayCtor.callAsConstructor(runtime, classArrayBuffer)
-                  .getObject(runtime);
-
-          dictPtr->setProperty(
-              runtime, jsi::String::createFromAscii(runtime, classLabel.data()),
-              float32Array);
-        }
-        promisePtr->set_value();
-      });
-
-  doneFuture.wait();
-  return dictPtr;
+  return semantic_segmentation::SegmentationResult{argmax, buffersToReturn};
 }
 
 } // namespace rnexecutorch::models::semantic_segmentation

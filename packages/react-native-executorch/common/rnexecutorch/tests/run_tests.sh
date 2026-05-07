@@ -16,9 +16,11 @@ MODELS_DIR="$SCRIPT_DIR/integration/assets/models"
 # ============================================================================
 TEST_EXECUTABLES=(
   "NumericalTests"
+  "RunnerTests"
   "LogTests"
   "FileUtilsTest"
   "ImageProcessingTest"
+  "FrameTransformTests"
   "BaseModelTests"
   "ClassificationTests"
   "ObjectDetectionTests"
@@ -28,8 +30,12 @@ TEST_EXECUTABLES=(
   "VADTests"
   "TokenizerModuleTests"
   "SpeechToTextTests"
+  "TextToSpeechTests"
   "LLMTests"
   "TextToImageTests"
+  "InstanceSegmentationTests"
+  "PoseEstimationTests"
+  "SemanticSegmentationTests"
   "OCRTests"
   "VerticalOCRTests"
 )
@@ -39,6 +45,7 @@ TEST_EXECUTABLES=(
 # ============================================================================
 TEST_ASSETS=(
   "integration/assets/test_audio_float.raw"
+  "integration/assets/test_speech.raw"
   "integration/assets/we_are_software_mansion.jpg"
 )
 
@@ -49,14 +56,18 @@ MODELS=(
   "style_transfer_candy_xnnpack_fp32.pte|https://huggingface.co/software-mansion/react-native-executorch-style-transfer-candy/resolve/main/xnnpack/style_transfer_candy_xnnpack_fp32.pte"
   "efficientnet_v2_s_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-efficientnet-v2-s/resolve/v0.6.0/xnnpack/efficientnet_v2_s_xnnpack.pte"
   "ssdlite320-mobilenetv3-large.pte|https://huggingface.co/software-mansion/react-native-executorch-ssdlite320-mobilenet-v3-large/resolve/v0.6.0/ssdlite320-mobilenetv3-large.pte"
-  "test_image.jpg|https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/1200px-Cat_November_2010-1a.jpg"
+  "test_image.jpg|https://upload.wikimedia.org/wikipedia/commons/f/f8/Cat_in_tree03.jpg"
   "clip-vit-base-patch32-vision_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-clip-vit-base-patch32/resolve/v0.6.0/clip-vit-base-patch32-vision_xnnpack.pte"
   "all-MiniLM-L6-v2_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-all-MiniLM-L6-v2/resolve/v0.6.0/all-MiniLM-L6-v2_xnnpack.pte"
   "tokenizer.json|https://huggingface.co/software-mansion/react-native-executorch-all-MiniLM-L6-v2/resolve/v0.6.0/tokenizer.json"
   "fsmn-vad_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-fsmn-vad/resolve/main/xnnpack/fsmn-vad_xnnpack.pte"
-  "whisper_tiny_en_encoder_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-whisper-tiny.en/resolve/v0.7.0/xnnpack/whisper_tiny_en_encoder_xnnpack.pte"
-  "whisper_tiny_en_decoder_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-whisper-tiny.en/resolve/v0.7.0/xnnpack/whisper_tiny_en_decoder_xnnpack.pte"
-  "whisper_tokenizer.json|https://huggingface.co/software-mansion/react-native-executorch-whisper-tiny.en/resolve/v0.6.0/tokenizer.json"
+  "whisper_tiny_en_xnnpack.pte|https://huggingface.co/software-mansion/react-native-executorch-whisper-tiny.en/resolve/v0.8.0/xnnpack/whisper_tiny_en_xnnpack.pte"
+  "whisper_tokenizer.json|https://huggingface.co/software-mansion/react-native-executorch-whisper-tiny.en/resolve/v0.8.0/tokenizer.json"
+  "kokoro_duration_predictor.pte|https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/main/xnnpack/medium/duration_predictor.pte"
+  "kokoro_synthesizer.pte|https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/main/xnnpack/medium/synthesizer.pte"
+  "kokoro_af_heart.bin|https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/main/voices/af_heart.bin"
+  "kokoro_us_lexicon.json|https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/main/phonemizer/us_merged.json"
+  "kokoro_en_tagger.json|https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/main/phonemizer/tags.json"
   "smolLm2_135M_8da4w.pte|https://huggingface.co/software-mansion/react-native-executorch-smolLm-2/resolve/v0.6.0/smolLm-2-135M/quantized/smolLm2_135M_8da4w.pte"
   "smollm_tokenizer.json|https://huggingface.co/software-mansion/react-native-executorch-smolLm-2/resolve/v0.6.0/tokenizer.json"
   "deeplabV3_xnnpack_fp32.pte|https://huggingface.co/software-mansion/react-native-executorch-deeplab-v3/resolve/v0.6.0/xnnpack/deeplabV3_xnnpack_fp32.pte"
@@ -66,6 +77,12 @@ MODELS=(
   "t2i_encoder.pte|https://huggingface.co/software-mansion/react-native-executorch-bk-sdm-tiny/resolve/v0.6.0/text_encoder/model.pte"
   "t2i_unet.pte|https://huggingface.co/software-mansion/react-native-executorch-bk-sdm-tiny/resolve/v0.6.0/unet/model.256.pte"
   "t2i_decoder.pte|https://huggingface.co/software-mansion/react-native-executorch-bk-sdm-tiny/resolve/v0.6.0/vae/model.256.pte"
+  "lfm2_5_vl_quantized_xnnpack_v2.pte|https://huggingface.co/software-mansion/react-native-executorch-lfm2.5-VL-1.6B/resolve/main/quantized/lfm2_5_vl_1_6b_8da4w_xnnpack.pte"
+  "lfm2_vl_tokenizer.json|https://huggingface.co/software-mansion/react-native-executorch-lfm2.5-VL-1.6B/resolve/main/tokenizer.json"
+  "lfm2_vl_tokenizer_config.json|https://huggingface.co/software-mansion/react-native-executorch-lfm2.5-VL-1.6B/resolve/main/tokenizer_config.json"
+  "yolo26n-seg.pte|https://huggingface.co/software-mansion/react-native-executorch-yolo26-seg/resolve/v0.8.0/yolo26n-seg/xnnpack/yolo26n-seg.pte"
+  "segmentation_image.jpg|https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/Collage_audi.jpg/1280px-Collage_audi.jpg"
+  "yolo26n-pose.pte|https://huggingface.co/software-mansion/react-native-executorch-yolo26-pose/resolve/v0.9.0/yolo26n/xnnpack/yolo26n-pose_xnnpack.pte"
 )
 
 # ============================================================================
@@ -174,6 +191,45 @@ run_test() {
   return 0
 }
 
+# Returns a space-separated list of model/asset filenames (in $MODELS_DIR) that
+# the given test executable loads at runtime. Tests not listed here have no
+# model dependencies. Adding a new test? Add its filenames below.
+models_for_test() {
+  case "$1" in
+  BaseModelTests) echo "style_transfer_candy_xnnpack_fp32.pte" ;;
+  ClassificationTests) echo "efficientnet_v2_s_xnnpack.pte test_image.jpg" ;;
+  ObjectDetectionTests) echo "ssdlite320-mobilenetv3-large.pte test_image.jpg" ;;
+  ImageEmbeddingsTests) echo "clip-vit-base-patch32-vision_xnnpack.pte test_image.jpg" ;;
+  TextEmbeddingsTests) echo "all-MiniLM-L6-v2_xnnpack.pte tokenizer.json" ;;
+  StyleTransferTests) echo "style_transfer_candy_xnnpack_fp32.pte test_image.jpg" ;;
+  VADTests) echo "fsmn-vad_xnnpack.pte" ;;
+  TokenizerModuleTests) echo "tokenizer.json" ;;
+  SpeechToTextTests) echo "whisper_tiny_en_xnnpack.pte whisper_tokenizer.json" ;;
+  TextToSpeechTests) echo "kokoro_duration_predictor.pte kokoro_synthesizer.pte kokoro_af_heart.bin kokoro_us_lexicon.json kokoro_en_tagger.json" ;;
+  LLMTests) echo "smolLm2_135M_8da4w.pte smollm_tokenizer.json lfm2_5_vl_quantized_xnnpack_v2.pte lfm2_vl_tokenizer.json lfm2_vl_tokenizer_config.json test_image.jpg" ;;
+  TextToImageTests) echo "t2i_tokenizer.json t2i_encoder.pte t2i_unet.pte t2i_decoder.pte" ;;
+  InstanceSegmentationTests) echo "yolo26n-seg.pte segmentation_image.jpg" ;;
+  PoseEstimationTests) echo "yolo26n-pose.pte" ;;
+  SemanticSegmentationTests) echo "deeplabV3_xnnpack_fp32.pte test_image.jpg" ;;
+  OCRTests | VerticalOCRTests) echo "xnnpack_craft_quantized.pte xnnpack_crnn_english.pte" ;;
+  *) echo "" ;;
+  esac
+}
+
+push_test_models() {
+  local models="$1"
+  for filename in $models; do
+    push_file "$MODELS_DIR/$filename" "$DEVICE_TEST_DIR/"
+  done
+}
+
+cleanup_test_models() {
+  local models="$1"
+  for filename in $models; do
+    adb shell "rm -f $DEVICE_TEST_DIR/$filename" >/dev/null 2>&1 || true
+  done
+}
+
 # ============================================================================
 # Parse arguments
 # ============================================================================
@@ -275,15 +331,9 @@ for entry in "${MODELS[@]}"; do
   download_if_needed "$url" "$filename"
 done
 
-# ============================================================================
-# Push models
-# ============================================================================
-log "Pushing models to device..."
-for model in "$MODELS_DIR"/*; do
-  if [ -f "$model" ]; then
-    push_file "$model" "$DEVICE_TEST_DIR/"
-  fi
-done
+# Models are pushed per-test in the run loop below to keep peak device disk
+# usage low (the full set is ~6GB, far more than `/data/local/tmp` on a typical
+# emulator). See `models_for_test` for the test → models mapping.
 
 # ============================================================================
 # Push libraries
@@ -312,8 +362,19 @@ done
 log "Running tests on device..."
 FAILED=0
 for test_exe in "${TEST_EXECUTABLES[@]}"; do
+  models=$(models_for_test "$test_exe")
+
+  if [ -n "$models" ]; then
+    log "Pushing models for $test_exe..."
+    push_test_models "$models"
+  fi
+
   if ! run_test "$test_exe"; then
     FAILED=1
+  fi
+
+  if [ -n "$models" ]; then
+    cleanup_test_models "$models"
   fi
 done
 

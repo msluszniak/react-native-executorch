@@ -3,19 +3,7 @@ import { RnExecutorchErrorCode } from '../../errors/ErrorCodes';
 import { RnExecutorchError } from '../../errors/errorUtils';
 import { Frame, PixelData, ScalarType } from '../../types/common';
 
-/**
- * Base class for computer vision models that support multiple input types.
- *
- * VisionModule extends BaseModule with:
- * - Unified `forward()` API accepting string paths or raw pixel data
- * - `runOnFrame` getter for real-time VisionCamera frame processing
- * - Shared frame processor creation logic
- *
- * Subclasses should only implement model-specific loading logic.
- *
- * @category Typescript API
- */
-function isPixelData(input: unknown): input is PixelData {
+export function isPixelData(input: unknown): input is PixelData {
   return (
     typeof input === 'object' &&
     input !== null &&
@@ -29,15 +17,25 @@ function isPixelData(input: unknown): input is PixelData {
   );
 }
 
+/**
+ * Base class for computer vision models that support multiple input types.
+ *
+ * VisionModule extends BaseModule with:
+ * - Unified `forward()` API accepting string paths or raw pixel data
+ * - `runOnFrame` getter for real-time VisionCamera frame processing
+ * - Shared frame processor creation logic
+ *
+ * Subclasses implement model-specific loading logic and may override `forward` for typed signatures.
+ * @category Typescript API
+ */
 export abstract class VisionModule<TOutput> extends BaseModule {
   /**
    * Synchronous worklet function for real-time VisionCamera frame processing.
    *
-   * Only available after the model is loaded. Returns null if not loaded.
+   * Only available after the model is loaded.
    *
    * **Use this for VisionCamera frame processing in worklets.**
    * For async processing, use `forward()` instead.
-   *
    * @example
    * ```typescript
    * const model = new ClassificationModule();
@@ -52,29 +50,41 @@ export abstract class VisionModule<TOutput> extends BaseModule {
    *   onFrame(frame) {
    *     'worklet';
    *     if (!runOnFrame) return;
-   *     const result = runOnFrame(frame);
+   *     const result = runOnFrame(frame, isFrontCamera);
    *     frame.dispose();
    *   }
    * });
    * ```
+   * @returns A worklet function for frame processing.
+   * @throws {RnExecutorchError} If the model is not loaded.
    */
-  get runOnFrame(): ((frame: Frame, ...args: any[]) => TOutput) | null {
-    if (!this.nativeModule?.generateFromFrame) {
-      return null;
+  get runOnFrame(): (frame: Frame, ...args: any[]) => TOutput {
+    if (!this.nativeModule) {
+      throw new RnExecutorchError(
+        RnExecutorchErrorCode.ModuleNotLoaded,
+        'The model is currently not loaded. Please load the model before calling runOnFrame().'
+      );
     }
 
     // Extract pure JSI function reference (runs on JS thread)
     const nativeGenerateFromFrame = this.nativeModule.generateFromFrame;
 
     // Return worklet that captures ONLY the JSI function
-    return (frame: any, ...args: any[]): TOutput => {
+    return (frame: Frame, isFrontCamera: boolean, ...args: any[]): TOutput => {
       'worklet';
 
-      let nativeBuffer: any = null;
+      let nativeBuffer: { pointer: bigint; release(): void } | null = null;
       try {
         nativeBuffer = frame.getNativeBuffer();
+        /**
+        Currently isMirrored is never set to true in VisionCamera.
+        That's why we need to use our own property to determine if we need
+        to mirror the results
+         */
         const frameData = {
           nativeBuffer: nativeBuffer.pointer,
+          orientation: frame.orientation,
+          isMirrored: isFrontCamera,
         };
         return nativeGenerateFromFrame(frameData, ...args);
       } finally {
@@ -94,11 +104,9 @@ export abstract class VisionModule<TOutput> extends BaseModule {
    *
    * **Note**: For VisionCamera frame processing, use `runOnFrame` instead.
    * This method is async and cannot be called in worklet context.
-   *
    * @param input - Image source (string path or PixelData object)
    * @param args - Additional model-specific arguments
    * @returns A Promise that resolves to the model output.
-   *
    * @example
    * ```typescript
    * // String path (async)
@@ -127,7 +135,6 @@ export abstract class VisionModule<TOutput> extends BaseModule {
         RnExecutorchErrorCode.ModuleNotLoaded,
         'The model is currently not loaded. Please load the model before calling forward().'
       );
-
     // Type detection and routing
     if (typeof input === 'string') {
       return await this.nativeModule.generateFromString(input, ...args);

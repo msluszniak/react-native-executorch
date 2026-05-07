@@ -1,6 +1,6 @@
 {
   "name": "react-native-executorch",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "An easy way to run AI models in React Native with ExecuTorch",
   "source": "./src/index.ts",
   "main": "./lib/module/index.js",
@@ -20,6 +20,7 @@
     "third-party",
     "!third-party/ios/ExecutorchLib",
     "!third-party/ios/libs/executorch",
+    "!ios/*.xcodeproj",
     "!ios/build",
     "!android/build",
     "!android/gradle",
@@ -41,15 +42,22 @@
     "postpack": "rm ./README.md"
   },
   "keywords": [
+    "text-to-speech",
+    "ocr",
+    "computer-vision",
+    "segmentation",
+    "object-detection",
+    "speech-to-text",
+    "vlm",
+    "image-embeddings",
+    "on-device-ai",
+    "text-embeddings",
+    "llm",
+    "ai",
     "react-native",
     "ios",
     "android",
-    "executorch",
-    "ai",
-    "llm",
-    "coreml",
-    "xnnpack",
-    "llama"
+    "executorch"
   ],
   "repository": {
     "type": "git",
@@ -79,9 +87,6 @@
     "react-native": "0.81.5",
     "react-native-builder-bob": "^0.40.12",
     "typescript": "~5.9.2"
-  },
-  "resolutions": {
-    "@types/react": "^18.2.44"
   },
   "workspaces": [
     "example"
@@ -119,6 +124,7 @@
     "@huggingface/jinja": "^0.5.0",
     "jsonrepair": "^3.12.0",
     "jsonschema": "^1.5.0",
+    "pngjs": "^7.0.0",
     "zod": "^4.3.6"
   }
 }

@@ -12,12 +12,25 @@ import {
 } from 'react-native';
 import SendIcon from '../../assets/icons/send_icon.svg';
 import Spinner from '../../components/Spinner';
+import SuggestedPrompts from '../../components/SuggestedPrompts';
+
+const SUGGESTED_PROMPTS = [
+  "I'm John. Is this damaged? I offer $100.",
+  "Hi, I'm Alice! How old is it? Offering $250 USD.",
+  "I'm Bob. Does it have warranty? I'll pay €50.",
+  "Name's Sara. What condition? My bid is $75.",
+];
+import { useLLMStats } from '../../hooks/useLLMStats';
+import { StatsBar } from '../../components/StatsBar';
+import ErrorBanner from '../../components/ErrorBanner';
 import {
   useLLM,
   fixAndValidateStructuredOutput,
   getStructuredOutputPrompt,
   QWEN3_1_7B_QUANTIZED,
 } from 'react-native-executorch';
+import { ModelPicker } from '../../components/ModelPicker';
+import { LLM_MODELS, LLMModelSources } from '../../components/llmModels';
 import PauseIcon from '../../assets/icons/pause_icon.svg';
 import ColorPalette from '../../colors';
 import Messages from '../../components/Messages';
@@ -70,10 +83,19 @@ export default function LLMScreenWrapper() {
 function LLMScreen() {
   const [isTextInputFocused, setIsTextInputFocused] = useState(false);
   const [userInput, setUserInput] = useState('');
+  const [selectedModel, setSelectedModel] =
+    useState<LLMModelSources>(QWEN3_1_7B_QUANTIZED);
   const textInputRef = useRef<TextInput>(null);
   const { setGlobalGenerating } = useContext(GeneratingContext);
 
-  const llm = useLLM({ model: QWEN3_1_7B_QUANTIZED }); // try out 4B model if 1.7B struggles with following structured output
+  const llm = useLLM({ model: selectedModel });
+  const tokenCount = llm.isReady ? llm.getGeneratedTokenCount() : 0;
+  const { stats, onMessageSend } = useLLMStats(
+    llm.response,
+    llm.isGenerating,
+    tokenCount
+  );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setGlobalGenerating(llm.isGenerating);
@@ -118,24 +140,23 @@ function LLMScreen() {
   }, [llm.messageHistory, llm.isGenerating]);
 
   useEffect(() => {
-    if (llm.error) {
-      console.error('LLM error:', llm.error);
-    }
+    if (llm.error) setError(String(llm.error));
   }, [llm.error]);
 
   const sendMessage = async () => {
+    onMessageSend();
     setUserInput('');
     textInputRef.current?.clear();
     try {
       await llm.sendMessage(userInput);
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  return !llm.isReady ? (
+  return !llm.isReady && !llm.error ? (
     <Spinner
-      visible={!llm.isReady}
+      visible={true}
       textContent={`Loading the model ${(llm.downloadProgress * 100).toFixed(0)} %`}
     />
   ) : (
@@ -149,6 +170,7 @@ function LLMScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 120 : 40}
       >
         <View style={styles.container}>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
           {llm.messageHistory.length ? (
             <View style={styles.chatContainer}>
               <Messages
@@ -165,9 +187,20 @@ function LLMScreen() {
                 I can parse user's questions! Introduce yourself, ask questions
                 and offer a price for some product.
               </Text>
+              <SuggestedPrompts
+                prompts={SUGGESTED_PROMPTS}
+                onSelect={setUserInput}
+              />
             </View>
           )}
 
+          <ModelPicker
+            models={LLM_MODELS}
+            selectedModel={selectedModel}
+            onSelect={(m) => setSelectedModel(m)}
+            disabled={llm.isGenerating}
+          />
+          <StatsBar stats={stats} />
           <View style={styles.bottomContainer}>
             <TextInput
               autoCorrect={false}
@@ -187,6 +220,7 @@ function LLMScreen() {
               placeholderTextColor={'#C1C6E5'}
               multiline={true}
               ref={textInputRef}
+              value={userInput}
               onChangeText={(text: string) => setUserInput(text)}
             />
             {userInput && (

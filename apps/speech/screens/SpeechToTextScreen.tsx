@@ -14,8 +14,22 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   useSpeechToText,
   WHISPER_TINY_EN,
+  WHISPER_TINY_EN_QUANTIZED,
+  WHISPER_BASE_EN,
+  WHISPER_SMALL_EN,
   TranscriptionResult,
+  SpeechToTextProps,
 } from 'react-native-executorch';
+import { ModelPicker, ModelOption } from '../components/ModelPicker';
+
+type STTModelSources = SpeechToTextProps['model'];
+
+const MODELS: ModelOption<STTModelSources>[] = [
+  { label: 'Whisper Tiny', value: WHISPER_TINY_EN },
+  { label: 'Whisper Tiny Q', value: WHISPER_TINY_EN_QUANTIZED },
+  { label: 'Whisper Base', value: WHISPER_BASE_EN },
+  { label: 'Whisper Small', value: WHISPER_SMALL_EN },
+];
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import {
   AudioManager,
@@ -27,16 +41,23 @@ import SWMIcon from '../assets/swm_icon.svg';
 import DeviceInfo from 'react-native-device-info';
 
 import { VerboseTranscription } from '../components/VerboseTranscription';
+import ErrorBanner from '../components/ErrorBanner';
 
 const isSimulator = DeviceInfo.isEmulatorSync();
 
 export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
+  const [selectedModel, setSelectedModel] =
+    useState<STTModelSources>(WHISPER_TINY_EN);
+
   const model = useSpeechToText({
-    model: WHISPER_TINY_EN,
+    model: selectedModel,
   });
 
   const [transcription, setTranscription] =
     useState<TranscriptionResult | null>(null);
+  const [transcriptionTime, setTranscriptionTime] = useState<number | null>(
+    null
+  );
 
   const [liveResult, setLiveResult] = useState<{
     fullText: string;
@@ -44,13 +65,15 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
   } | null>(null);
 
   const [enableTimestamps, setEnableTimestamps] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [audioURL, setAudioURL] = useState('');
+  const [hasMicPermission, setHasMicPermission] = useState(false);
 
   const isRecordingRef = useRef(false);
   const [liveTranscribing, setLiveTranscribing] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  const recorder = new AudioRecorder();
+  const recorder = useRef(new AudioRecorder());
 
   useEffect(() => {
     AudioManager.setAudioSessionOptions({
@@ -59,8 +82,8 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
       iosOptions: ['allowBluetoothHFP', 'defaultToSpeaker'],
     });
     const checkPerms = async () => {
-      const granted = await AudioManager.requestRecordingPermissions();
-      if (!granted) console.warn('Microphone permission denied!');
+      const status = await AudioManager.requestRecordingPermissions();
+      setHasMicPermission(status === 'Granted');
     };
     checkPerms();
   }, []);
@@ -96,17 +119,24 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
     try {
       const decodedAudioData = await audioContext.decodeAudioData(uri);
       const audioBuffer = decodedAudioData.getChannelData(0);
+      const start = Date.now();
       const result = await model.transcribe(audioBuffer, {
         verbose: enableTimestamps,
       });
+      setTranscriptionTime(Date.now() - start);
       setTranscription(result);
-    } catch (error) {
-      console.error('Error decoding audio data', error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
       return;
     }
   };
 
   const handleStartTranscribeFromMicrophone = async () => {
+    if (!hasMicPermission) {
+      setError('Microphone permission denied. Please enable it in Settings.');
+      return;
+    }
+
     isRecordingRef.current = true;
     setLiveTranscribing(true);
 
@@ -115,7 +145,7 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
 
     const sampleRate = 16000;
 
-    recorder.onAudioReady(
+    recorder.current.onAudioReady(
       {
         sampleRate,
         bufferLength: 0.1 * sampleRate,
@@ -129,14 +159,14 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
     try {
       const success = await AudioManager.setAudioSessionActivity(true);
       if (!success) {
-        console.warn('Cannot start audio session correctly');
+        setError('Cannot start audio session correctly');
       }
-      const result = recorder.start();
+      const result = recorder.current.start();
       if (result.status === 'error') {
-        console.warn('Recording problems: ', result.message);
+        setError(`Recording problems: ${result.message}`);
       }
     } catch (e) {
-      console.error('Failed to start recorder', e);
+      setError(e instanceof Error ? e.message : String(e));
       isRecordingRef.current = false;
       setLiveTranscribing(false);
       return;
@@ -167,8 +197,8 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
 
         setLiveResult(currentDisplay);
       }
-    } catch (error) {
-      console.error('Error during live transcription:', error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLiveTranscribing(false);
     }
@@ -177,7 +207,7 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
   const handleStopTranscribeFromMicrophone = () => {
     isRecordingRef.current = false;
 
-    recorder.stop();
+    recorder.current.stop();
     model.streamStop();
     console.log('Live transcription stopped');
     setLiveTranscribing(false);
@@ -194,11 +224,14 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
   };
 
   const getModelStatus = () => {
-    if (model.error) return `${model.error}`;
     if (model.isGenerating) return 'Transcribing...';
     if (model.isReady) return 'Ready to transcribe';
     return `Loading model: ${(100 * model.downloadProgress).toFixed(2)}%`;
   };
+
+  useEffect(() => {
+    if (model.error) setError(String(model.error));
+  }, [model.error]);
 
   const readyToTranscribe = !model.isGenerating && model.isReady;
   const recordingButtonDisabled = isSimulator || !readyToTranscribe;
@@ -235,7 +268,23 @@ export const SpeechToTextScreen = ({ onBack }: { onBack: () => void }) => {
 
           <View style={styles.statusContainer}>
             <Text>Status: {getModelStatus()}</Text>
+            {transcriptionTime !== null && (
+              <Text style={styles.statsText}>
+                Transcription: {transcriptionTime} ms
+              </Text>
+            )}
           </View>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
+          <ModelPicker
+            models={MODELS}
+            selectedModel={selectedModel}
+            onSelect={(m) => {
+              setSelectedModel(m);
+              setTranscription(null);
+              setLiveResult(null);
+            }}
+          />
 
           <View style={styles.toggleContainer}>
             <Text style={styles.toggleLabel}>Enable Timestamps (Verbose)</Text>
@@ -357,6 +406,12 @@ const styles = StyleSheet.create({
   statusContainer: {
     marginTop: 12,
     alignItems: 'center',
+  },
+  statsText: {
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: '500',
+    marginTop: 4,
   },
   toggleContainer: {
     flexDirection: 'row',

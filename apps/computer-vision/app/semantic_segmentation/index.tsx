@@ -1,9 +1,17 @@
 import Spinner from '../../components/Spinner';
 import { BottomBar } from '../../components/BottomBar';
+import { ModelPicker, ModelOption } from '../../components/ModelPicker';
 import { getImage } from '../../utils';
 import {
-  DEEPLAB_V3_RESNET50,
+  DEEPLAB_V3_MOBILENET_V3_LARGE_QUANTIZED,
+  DEEPLAB_V3_RESNET50_QUANTIZED,
+  DEEPLAB_V3_RESNET101_QUANTIZED,
+  LRASPP_MOBILENET_V3_LARGE_QUANTIZED,
+  FCN_RESNET50_QUANTIZED,
+  FCN_RESNET101_QUANTIZED,
+  SELFIE_SEGMENTATION,
   useSemanticSegmentation,
+  SemanticSegmentationModelSources,
 } from 'react-native-executorch';
 import {
   Canvas,
@@ -13,10 +21,12 @@ import {
   ColorType,
   SkImage,
 } from '@shopify/react-native-skia';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet, Image, Text } from 'react-native';
 import React, { useContext, useEffect, useState } from 'react';
 import { GeneratingContext } from '../../context';
 import ScreenWrapper from '../../ScreenWrapper';
+import { StatsBar } from '../../components/StatsBar';
+import ErrorBanner from '../../components/ErrorBanner';
 
 const numberToColor: number[][] = [
   [255, 87, 51], // 0 Red
@@ -42,35 +52,62 @@ const numberToColor: number[][] = [
   [162, 51, 255], // 20 Amethyst
 ];
 
+const MODELS: ModelOption<SemanticSegmentationModelSources>[] = [
+  {
+    label: 'DeepLab MobileNet',
+    value: DEEPLAB_V3_MOBILENET_V3_LARGE_QUANTIZED,
+  },
+  { label: 'DeepLab ResNet50', value: DEEPLAB_V3_RESNET50_QUANTIZED },
+  { label: 'DeepLab ResNet101', value: DEEPLAB_V3_RESNET101_QUANTIZED },
+  { label: 'LRASPP MobileNet', value: LRASPP_MOBILENET_V3_LARGE_QUANTIZED },
+  { label: 'FCN ResNet50', value: FCN_RESNET50_QUANTIZED },
+  { label: 'FCN ResNet101', value: FCN_RESNET101_QUANTIZED },
+  { label: 'Selfie Segmentation', value: SELFIE_SEGMENTATION },
+];
+
 export default function SemanticSegmentationScreen() {
   const { setGlobalGenerating } = useContext(GeneratingContext);
-  const { isReady, isGenerating, downloadProgress, forward } =
-    useSemanticSegmentation({
-      model: DEEPLAB_V3_RESNET50,
-    });
+  const [selectedModel, setSelectedModel] =
+    useState<SemanticSegmentationModelSources>(
+      DEEPLAB_V3_MOBILENET_V3_LARGE_QUANTIZED
+    );
+
+  const {
+    isReady,
+    isGenerating,
+    downloadProgress,
+    forward,
+    error: modelError,
+  } = useSemanticSegmentation({ model: selectedModel });
+
   const [imageUri, setImageUri] = useState('');
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [segImage, setSegImage] = useState<SkImage | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const [inferenceTime, setInferenceTime] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setGlobalGenerating(isGenerating);
   }, [isGenerating, setGlobalGenerating]);
 
+  useEffect(() => {
+    if (modelError) setError(String(modelError));
+  }, [modelError]);
+
   const handleCameraPress = async (isCamera: boolean) => {
     const image = await getImage(isCamera);
     if (!image?.uri) return;
     setImageUri(image.uri);
-    setImageSize({
-      width: image.width ?? 0,
-      height: image.height ?? 0,
-    });
+    setImageSize({ width: image.width ?? 0, height: image.height ?? 0 });
     setSegImage(null);
+    setInferenceTime(null);
   };
 
   const runForward = async () => {
     if (!imageUri || imageSize.width === 0 || imageSize.height === 0) return;
     try {
+      const start = Date.now();
       const { width, height } = imageSize;
       const output = await forward(imageUri, [], true);
       const argmax = output.ARGMAX || [];
@@ -99,15 +136,16 @@ export default function SemanticSegmentationScreen() {
         width * 4
       );
       setSegImage(img);
+      setInferenceTime(Date.now() - start);
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  if (!isReady) {
+  if (!isReady && !modelError) {
     return (
       <Spinner
-        visible={!isReady}
+        visible={true}
         textContent={`Loading the model ${(downloadProgress * 100).toFixed(0)} %`}
       />
     );
@@ -115,6 +153,7 @@ export default function SemanticSegmentationScreen() {
 
   return (
     <ScreenWrapper>
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
       <View style={styles.imageCanvasContainer}>
         <View style={styles.imageContainer}>
           <Image
@@ -126,6 +165,16 @@ export default function SemanticSegmentationScreen() {
                 : require('../../assets/icons/executorch_logo.png')
             }
           />
+          {!imageUri && (
+            <View style={styles.infoContainer}>
+              <Text style={styles.infoTitle}>Semantic Segmentation</Text>
+              <Text style={styles.infoText}>
+                This model assigns a class label to every pixel in an image,
+                painting each region with a distinct color. Pick an image from
+                your gallery or take one with your camera to get started.
+              </Text>
+            </View>
+          )}
         </View>
         {segImage && (
           <View
@@ -150,29 +199,30 @@ export default function SemanticSegmentationScreen() {
           </View>
         )}
       </View>
+      <ModelPicker
+        models={MODELS}
+        selectedModel={selectedModel}
+        disabled={isGenerating}
+        onSelect={(m) => {
+          setSelectedModel(m);
+          setSegImage(null);
+        }}
+      />
+      <StatsBar inferenceTime={inferenceTime} />
       <BottomBar
         handleCameraPress={handleCameraPress}
         runForward={runForward}
+        hasImage={!!imageUri}
+        isGenerating={isGenerating}
       />
     </ScreenWrapper>
   );
 }
 
 const styles = StyleSheet.create({
-  imageCanvasContainer: {
-    flex: 6,
-    width: '100%',
-    padding: 16,
-  },
-  imageContainer: {
-    flex: 1,
-    width: '100%',
-  },
-  image: {
-    flex: 1,
-    borderRadius: 8,
-    width: '100%',
-  },
+  imageCanvasContainer: { flex: 6, width: '100%', padding: 16 },
+  imageContainer: { flex: 1, width: '100%' },
+  image: { flex: 1, borderRadius: 8, width: '100%' },
   canvasContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -180,8 +230,21 @@ const styles = StyleSheet.create({
     gap: 4,
     padding: 4,
   },
-  canvas: {
-    width: '100%',
-    height: '100%',
+  canvas: { width: '100%', height: '100%' },
+  infoContainer: {
+    alignItems: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  infoTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: 'navy',
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#555',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

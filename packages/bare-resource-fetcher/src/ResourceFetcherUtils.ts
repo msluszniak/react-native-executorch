@@ -6,7 +6,6 @@ import {
   HTTP_CODE,
   DownloadStatus,
   SourceType,
-  ResourceSourceExtended,
   RnExecutorchError,
   RnExecutorchErrorCode,
 } from 'react-native-executorch';
@@ -14,11 +13,9 @@ import { Image } from 'react-native';
 import * as RNFS from '@dr.pogodin/react-native-fs';
 
 export { HTTP_CODE, DownloadStatus, SourceType };
-export type { ResourceSourceExtended };
 
 /**
  * Utility functions for fetching and managing resources.
- *
  * @category Utilities - General
  */
 export namespace ResourceFetcherUtils {
@@ -27,6 +24,7 @@ export namespace ResourceFetcherUtils {
   export const calculateDownloadProgress = CoreUtils.calculateDownloadProgress;
   export const triggerHuggingFaceDownloadCounter =
     CoreUtils.triggerHuggingFaceDownloadCounter;
+  export const triggerDownloadEvent = CoreUtils.triggerDownloadEvent;
   export const getFilenameFromUri = CoreUtils.getFilenameFromUri;
 
   export function getType(source: ResourceSource): SourceType {

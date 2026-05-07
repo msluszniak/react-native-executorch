@@ -10,10 +10,37 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
+  KOKORO_SMALL,
   KOKORO_MEDIUM,
   KOKORO_VOICE_AF_HEART,
+  KOKORO_VOICE_AF_RIVER,
+  KOKORO_VOICE_AF_SARAH,
+  KOKORO_VOICE_AM_ADAM,
+  KOKORO_VOICE_AM_MICHAEL,
+  KOKORO_VOICE_AM_SANTA,
+  KOKORO_VOICE_BF_EMMA,
+  KOKORO_VOICE_BM_DANIEL,
   useTextToSpeech,
+  KokoroConfig,
+  VoiceConfig,
 } from 'react-native-executorch';
+import { ModelPicker, ModelOption } from '../components/ModelPicker';
+
+const TTS_MODELS: ModelOption<KokoroConfig>[] = [
+  { label: 'Kokoro Small', value: KOKORO_SMALL },
+  { label: 'Kokoro Medium', value: KOKORO_MEDIUM },
+];
+
+const VOICES: ModelOption<VoiceConfig>[] = [
+  { label: 'AF Heart', value: KOKORO_VOICE_AF_HEART },
+  { label: 'AF River', value: KOKORO_VOICE_AF_RIVER },
+  { label: 'AF Sarah', value: KOKORO_VOICE_AF_SARAH },
+  { label: 'AM Adam', value: KOKORO_VOICE_AM_ADAM },
+  { label: 'AM Michael', value: KOKORO_VOICE_AM_MICHAEL },
+  { label: 'AM Santa', value: KOKORO_VOICE_AM_SANTA },
+  { label: 'BF Emma', value: KOKORO_VOICE_BF_EMMA },
+  { label: 'BM Daniel', value: KOKORO_VOICE_BM_DANIEL },
+];
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import {
   AudioManager,
@@ -22,10 +49,12 @@ import {
   AudioBufferSourceNode,
 } from 'react-native-audio-api';
 import SWMIcon from '../assets/swm_icon.svg';
+import ErrorBanner from '../components/ErrorBanner';
 
 /**
  * Converts an audio vector (Float32Array) to an AudioBuffer for playback
  * @param audioVector - The generated audio samples from the model
+ * @param audioContext - An optional AudioContext to create the buffer in. If not provided, a new one will be created.
  * @param sampleRate - The sample rate (default: 24000 Hz for Kokoro)
  * @returns AudioBuffer ready for playback
  */
@@ -48,14 +77,21 @@ const createAudioBufferFromVector = (
 };
 
 export const TextToSpeechScreen = ({ onBack }: { onBack: () => void }) => {
+  const [selectedModel, setSelectedModel] =
+    useState<KokoroConfig>(KOKORO_MEDIUM);
+  const [selectedVoice, setSelectedVoice] = useState<VoiceConfig>(
+    KOKORO_VOICE_AF_HEART
+  );
+
   const model = useTextToSpeech({
-    model: KOKORO_MEDIUM,
-    voice: KOKORO_VOICE_AF_HEART,
+    model: selectedModel,
+    voice: selectedVoice,
   });
 
   const [inputText, setInputText] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [readyToGenerate, setReadyToGenerate] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode>(null);
@@ -124,18 +160,21 @@ export const TextToSpeechScreen = ({ onBack }: { onBack: () => void }) => {
         onNext,
         onEnd,
       });
-    } catch (error) {
-      console.error('Error generating or playing audio:', error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
       setIsPlaying(false);
     }
   };
 
   const getModelStatus = () => {
-    if (model.error) return `${model.error}`;
     if (model.isGenerating) return 'Generating audio...';
     if (model.isReady) return 'Ready to synthesize';
     return `Loading model: ${(100 * model.downloadProgress).toFixed(2)}%`;
   };
+
+  useEffect(() => {
+    if (model.error) setError(String(model.error));
+  }, [model.error]);
 
   return (
     <SafeAreaProvider>
@@ -156,6 +195,22 @@ export const TextToSpeechScreen = ({ onBack }: { onBack: () => void }) => {
           <View style={styles.statusContainer}>
             <Text>Status: {getModelStatus()}</Text>
           </View>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
+          <ModelPicker
+            label="Model"
+            models={TTS_MODELS}
+            selectedModel={selectedModel}
+            disabled={model.isGenerating}
+            onSelect={(m) => setSelectedModel(m)}
+          />
+          <ModelPicker
+            label="Voice"
+            models={VOICES}
+            selectedModel={selectedVoice}
+            disabled={model.isGenerating}
+            onSelect={(m) => setSelectedVoice(m)}
+          />
 
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>Enter text to synthesize</Text>

@@ -35,6 +35,18 @@ export default function Home() {
         >
           <Text style={styles.buttonText}>Voice Chat</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => router.navigate('multimodal_llm/')}
+        >
+          <Text style={styles.buttonText}>Multimodal LLM (VLM)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => router.navigate('privacy_filter/')}
+        >
+          <Text style={styles.buttonText}>Privacy Filter (PII)</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );

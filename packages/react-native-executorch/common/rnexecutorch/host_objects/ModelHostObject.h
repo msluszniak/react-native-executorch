@@ -46,7 +46,9 @@ public:
           "getInputShape"));
     }
 
-    if constexpr (meta::HasGenerate<Model>) {
+    // LLM::generate and LLM::generateMultimodal registered explicitly below
+    if constexpr (meta::HasGenerate<Model> &&
+                  !meta::SameAs<Model, models::llm::LLM>) {
       addFunctions(JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
                                        promiseHostFunction<&Model::generate>,
                                        "generate"));
@@ -99,6 +101,10 @@ public:
     }
 
     if constexpr (meta::SameAs<Model, models::llm::LLM>) {
+      addFunctions(JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
+                                       promiseHostFunction<&Model::generate>,
+                                       "generate"));
+
       addFunctions(JSI_EXPORT_FUNCTION(
           ModelHostObject<Model>, synchronousHostFunction<&Model::interrupt>,
           "interrupt"));
@@ -134,6 +140,15 @@ public:
                                        synchronousHostFunction<&Model::setTopp>,
                                        "setTopp"));
 
+      addFunctions(JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
+                                       synchronousHostFunction<&Model::setMinP>,
+                                       "setMinP"));
+
+      addFunctions(JSI_EXPORT_FUNCTION(
+          ModelHostObject<Model>,
+          synchronousHostFunction<&Model::setRepetitionPenalty>,
+          "setRepetitionPenalty"));
+
       addFunctions(JSI_EXPORT_FUNCTION(
           ModelHostObject<Model>,
           synchronousHostFunction<&Model::getMaxContextLength>,
@@ -145,9 +160,21 @@ public:
       addFunctions(JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
                                        synchronousHostFunction<&Model::reset>,
                                        "reset"));
+
+      addFunctions(
+          JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
+                              promiseHostFunction<&Model::generateMultimodal>,
+                              "generateMultimodal"));
+
+      addFunctions(JSI_EXPORT_FUNCTION(
+          ModelHostObject<Model>,
+          synchronousHostFunction<&Model::getVisualTokenCount>,
+          "getVisualTokenCount"));
     }
 
     if constexpr (meta::SameAs<Model, models::text_to_image::TextToImage>) {
+      addFunctions(
+          JSI_EXPORT_FUNCTION(ModelHostObject<Model>, unload, "unload"));
       addFunctions(JSI_EXPORT_FUNCTION(
           ModelHostObject<Model>, synchronousHostFunction<&Model::interrupt>,
           "interrupt"));
@@ -169,6 +196,21 @@ public:
       addFunctions(JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
                                        promiseHostFunction<&Model::stream>,
                                        "stream"));
+      addFunctions(JSI_EXPORT_FUNCTION(
+          ModelHostObject<Model>, synchronousHostFunction<&Model::streamStop>,
+          "streamStop"));
+      addFunctions(JSI_EXPORT_FUNCTION(
+          ModelHostObject<Model>, synchronousHostFunction<&Model::streamInsert>,
+          "streamInsert"));
+      addFunctions(
+          JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
+                              promiseHostFunction<&Model::generateFromPhonemes>,
+                              "generateFromPhonemes"));
+
+      addFunctions(
+          JSI_EXPORT_FUNCTION(ModelHostObject<Model>,
+                              promiseHostFunction<&Model::streamFromPhonemes>,
+                              "streamFromPhonemes"));
     }
 
     if constexpr (meta::HasGenerateFromString<Model>) {
@@ -224,14 +266,6 @@ public:
       errorData.setProperty(runtime, "message",
                             jsi::String::createFromUtf8(runtime, e.what()));
       throw jsi::JSError(runtime, jsi::Value(runtime, std::move(errorData)));
-    } catch (const std::runtime_error &e) {
-      // This catch should be merged with the next one
-      // (std::runtime_error inherits from std::exception) HOWEVER react
-      // native has broken RTTI which breaks proper exception type
-      // checking. Remove when the following change is present in our
-      // version:
-      // https://github.com/facebook/react-native/commit/3132cc88dd46f95898a756456bebeeb6c248f20e
-      throw jsi::JSError(runtime, e.what());
     } catch (const std::exception &e) {
       throw jsi::JSError(runtime, e.what());
     } catch (...) {
@@ -296,8 +330,16 @@ public:
 
         return jsi_conversion::getJsiValue(std::move(result), runtime);
       }
+    } catch (const RnExecutorchError &e) {
+      jsi::Object errorData(runtime);
+      errorData.setProperty(runtime, "code", e.getNumericCode());
+      errorData.setProperty(runtime, "message",
+                            jsi::String::createFromUtf8(runtime, e.what()));
+      throw jsi::JSError(runtime, jsi::Value(runtime, std::move(errorData)));
     } catch (const std::exception &e) {
       throw jsi::JSError(runtime, e.what());
+    } catch (...) {
+      throw jsi::JSError(runtime, "Unknown error in vision function");
     }
   }
 
@@ -326,7 +368,9 @@ public:
             // We need to dispatch a thread if we want the function to be
             // asynchronous. In this thread all accesses to jsi::Runtime need to
             // be done via the callInvoker.
-            threads::GlobalThreadPool::detach([this, promise,
+            threads::GlobalThreadPool::detach([model = this->model,
+                                               callInvoker = this->callInvoker,
+                                               promise,
                                                argsConverted =
                                                    std::move(argsConverted)]() {
               try {
@@ -366,22 +410,6 @@ public:
                   promise->reject(jsi::Value(runtime, std::move(errorData)));
                 });
                 return;
-              } catch (const std::runtime_error &e) {
-                // This catch should be merged with the next two
-                // (std::runtime_error and jsi::JSError inherits from
-                // std::exception) HOWEVER react native has broken RTTI
-                // which breaks proper exception type checking. Remove when
-                // the following change is present in our version:
-                // https://github.com/facebook/react-native/commit/3132cc88dd46f95898a756456bebeeb6c248f20e
-                callInvoker->invokeAsync([e = std::move(e), promise]() {
-                  promise->reject(std::string(e.what()));
-                });
-                return;
-              } catch (const jsi::JSError &e) {
-                callInvoker->invokeAsync([e = std::move(e), promise]() {
-                  promise->reject(std::string(e.what()));
-                });
-                return;
               } catch (const std::exception &e) {
                 callInvoker->invokeAsync([e = std::move(e), promise]() {
                   promise->reject(std::string(e.what()));
@@ -406,20 +434,13 @@ public:
   JSI_HOST_FUNCTION(unload) {
     try {
       model->unload();
+      thisValue.asObject(runtime).setExternalMemoryPressure(runtime, 0);
     } catch (const RnExecutorchError &e) {
       jsi::Object errorData(runtime);
       errorData.setProperty(runtime, "code", e.getNumericCode());
       errorData.setProperty(runtime, "message",
                             jsi::String::createFromUtf8(runtime, e.what()));
       throw jsi::JSError(runtime, jsi::Value(runtime, std::move(errorData)));
-    } catch (const std::runtime_error &e) {
-      // This catch should be merged with the next one
-      // (std::runtime_error inherits from std::exception) HOWEVER react
-      // native has broken RTTI which breaks proper exception type
-      // checking. Remove when the following change is present in our
-      // version:
-      // https://github.com/facebook/react-native/commit/3132cc88dd46f95898a756456bebeeb6c248f20e
-      throw jsi::JSError(runtime, e.what());
     } catch (const std::exception &e) {
       throw jsi::JSError(runtime, e.what());
     } catch (...) {

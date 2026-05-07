@@ -16,11 +16,14 @@ import {
 import SWMIcon from '../../assets/icons/swm_icon.svg';
 import SendIcon from '../../assets/icons/send_icon.svg';
 import Spinner from '../../components/Spinner';
+import ErrorBanner from '../../components/ErrorBanner';
 import {
   useLLM,
   DEFAULT_SYSTEM_PROMPT,
   HAMMER2_1_1_5B_QUANTIZED,
 } from 'react-native-executorch';
+import { ModelPicker } from '../../components/ModelPicker';
+import { LLM_MODELS, LLMModelSources } from '../../components/llmModels';
 import PauseIcon from '../../assets/icons/pause_icon.svg';
 import ColorPalette from '../../colors';
 import Messages from '../../components/Messages';
@@ -29,6 +32,16 @@ import * as Calendar from 'expo-calendar';
 import { executeTool, TOOL_DEFINITIONS_PHONE } from '../../utils/tools';
 import { useIsFocused } from '@react-navigation/native';
 import { GeneratingContext } from '../../context';
+import SuggestedPrompts from '../../components/SuggestedPrompts';
+
+const SUGGESTED_PROMPTS = [
+  'What events do I have today?',
+  'Add a meeting tomorrow at 2pm',
+  'Set screen brightness to 50%',
+  'What do I have scheduled this week?',
+];
+import { useLLMStats } from '../../hooks/useLLMStats';
+import { StatsBar } from '../../components/StatsBar';
 
 export default function LLMToolCallingScreenWrapper() {
   const isFocused = useIsFocused();
@@ -41,10 +54,20 @@ function LLMToolCallingScreen() {
   const [userInput, setUserInput] = useState('');
   const [hasCalendarPermission, setHasCalendarPermission] = useState(true);
   const [hasBrightnessPermission, setHasBrightnessPermission] = useState(true);
+  const [selectedModel, setSelectedModel] = useState<LLMModelSources>(
+    HAMMER2_1_1_5B_QUANTIZED
+  );
   const textInputRef = useRef<TextInput>(null);
   const { setGlobalGenerating } = useContext(GeneratingContext);
 
-  const llm = useLLM({ model: HAMMER2_1_1_5B_QUANTIZED });
+  const llm = useLLM({ model: selectedModel });
+  const tokenCount = llm.isReady ? llm.getGeneratedTokenCount() : 0;
+  const { stats, onMessageSend } = useLLMStats(
+    llm.response,
+    llm.isGenerating,
+    tokenCount
+  );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setGlobalGenerating(llm.isGenerating);
@@ -65,9 +88,7 @@ function LLMToolCallingScreen() {
   }, [configure]);
 
   useEffect(() => {
-    if (llm.error) {
-      console.error('LLM error:', llm.error);
-    }
+    if (llm.error) setError(String(llm.error));
   }, [llm.error]);
 
   const requestCalendarPermission = async () => {
@@ -145,18 +166,19 @@ function LLMToolCallingScreen() {
   }, []);
 
   const sendMessage = async () => {
+    onMessageSend();
     setUserInput('');
     textInputRef.current?.clear();
     try {
       await llm.sendMessage(userInput);
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  return !llm.isReady ? (
+  return !llm.isReady && !llm.error ? (
     <Spinner
-      visible={!llm.isReady}
+      visible={true}
       textContent={`Loading the model ${(llm.downloadProgress * 100).toFixed(0)} %`}
     />
   ) : (
@@ -171,6 +193,7 @@ function LLMToolCallingScreen() {
           <View style={styles.topContainer}>
             <SWMIcon width={45} height={45} />
           </View>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
           {llm.messageHistory.length ? (
             <View style={styles.chatContainer}>
               <Messages
@@ -186,6 +209,10 @@ function LLMToolCallingScreen() {
               <Text style={styles.bottomHelloText}>
                 I can use calendar! Ask me to check it or add an event for you!
               </Text>
+              <SuggestedPrompts
+                prompts={SUGGESTED_PROMPTS}
+                onSelect={setUserInput}
+              />
             </View>
           )}
 
@@ -212,6 +239,13 @@ function LLMToolCallingScreen() {
             </TouchableOpacity>
           )}
 
+          <ModelPicker
+            models={LLM_MODELS}
+            selectedModel={selectedModel}
+            onSelect={(m) => setSelectedModel(m)}
+            disabled={llm.isGenerating}
+          />
+          <StatsBar stats={stats} />
           <View style={styles.bottomContainer}>
             <TextInput
               autoCorrect={false}
@@ -227,6 +261,7 @@ function LLMToolCallingScreen() {
               placeholderTextColor={'#C1C6E5'}
               multiline={true}
               ref={textInputRef}
+              value={userInput}
               onChangeText={(text: string) => setUserInput(text)}
             />
             {userInput && (

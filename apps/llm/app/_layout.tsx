@@ -1,15 +1,55 @@
 import { Drawer } from 'expo-router/drawer';
 import { initExecutorch } from 'react-native-executorch';
-import { ExpoResourceFetcher } from '@react-native-executorch/expo-resource-fetcher';
+import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
 import ColorPalette from '../colors';
 import React, { useState } from 'react';
-import { Text, StyleSheet, View } from 'react-native';
+import { Text, StyleSheet, View, TouchableOpacity } from 'react-native';
 import {
   DrawerContentComponentProps,
   DrawerContentScrollView,
   DrawerItemList,
 } from '@react-navigation/drawer';
+import { DrawerActions } from '@react-navigation/native';
+import { useNavigation } from 'expo-router';
+import Svg, { Rect } from 'react-native-svg';
 import { GeneratingContext } from '../context';
+
+function HamburgerIcon({ tintColor }: { tintColor?: string }) {
+  const navigation = useNavigation();
+  return (
+    <TouchableOpacity
+      onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+      style={styles.hamburger}
+    >
+      <Svg width={24} height={24} viewBox="0 0 24 24">
+        <Rect
+          x={2}
+          y={4}
+          width={20}
+          height={2}
+          rx={1}
+          fill={tintColor ?? '#000'}
+        />
+        <Rect
+          x={2}
+          y={11}
+          width={20}
+          height={2}
+          rx={1}
+          fill={tintColor ?? '#000'}
+        />
+        <Rect
+          x={2}
+          y={18}
+          width={20}
+          height={2}
+          rx={1}
+          fill={tintColor ?? '#000'}
+        />
+      </Svg>
+    </TouchableOpacity>
+  );
+}
 
 initExecutorch({
   resourceFetcher: ExpoResourceFetcher,
@@ -55,8 +95,17 @@ export default function _layout() {
           drawerInactiveTintColor: '#888',
           headerTintColor: ColorPalette.primary,
           headerTitleStyle: { color: ColorPalette.primary },
+          headerLeft: (props) => <HamburgerIcon tintColor={props.tintColor} />,
         }}
       >
+        <Drawer.Screen
+          name="index"
+          options={{
+            drawerLabel: () => null,
+            title: 'Main Menu',
+            drawerItemStyle: { display: 'none' },
+          }}
+        />
         <Drawer.Screen
           name="llm/index"
           options={{
@@ -90,11 +139,19 @@ export default function _layout() {
           }}
         />
         <Drawer.Screen
-          name="index"
+          name="multimodal_llm/index"
           options={{
-            drawerLabel: () => null,
-            title: 'Main Menu',
-            drawerItemStyle: { display: 'none' },
+            drawerLabel: 'Multimodal LLM (VLM)',
+            title: 'Multimodal LLM',
+            headerTitleStyle: { color: ColorPalette.primary },
+          }}
+        />
+        <Drawer.Screen
+          name="privacy_filter/index"
+          options={{
+            drawerLabel: 'Privacy Filter (PII)',
+            title: 'Privacy Filter',
+            headerTitleStyle: { color: ColorPalette.primary },
           }}
         />
       </Drawer>
@@ -103,6 +160,9 @@ export default function _layout() {
 }
 
 const styles = StyleSheet.create({
+  hamburger: {
+    marginLeft: 12,
+  },
   centerContent: {
     flex: 1,
     justifyContent: 'center',

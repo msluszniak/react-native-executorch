@@ -18,7 +18,7 @@ description: "Learn how to use text-to-speech models in your React Native applic
 
 Text to speech is a task that allows to transform written text into spoken language. It is commonly used to implement features such as voice assistants, accessibility tools, or audiobooks.
 
-:::warning
+:::info
 It is recommended to use models provided by us, which are available at our [Hugging Face repository](https://huggingface.co/software-mansion/react-native-executorch-kokoro). You can also use [constants](https://github.com/software-mansion/react-native-executorch/blob/main/packages/react-native-executorch/src/constants/modelUrls.ts) shipped with our library.
 :::
 
@@ -65,7 +65,7 @@ const handleSpeech = async (text: string) => {
 
 `useTextToSpeech` takes [`TextToSpeechProps`](../../06-api-reference/interfaces/TextToSpeechProps.md) that consists of:
 
-- `model` of type [`KokoroConfig`](../../06-api-reference/interfaces/KokoroConfig.md) containing the [`durationPredictorSource`](../../06-api-reference/interfaces/KokoroConfig.md#durationpredictorsource), [`synthesizerSource`](../../06-api-reference/interfaces/KokoroConfig.md#synthesizersource), and [`type`](../../06-api-reference/interfaces/KokoroConfig.md#type).
+- `model` of type [`KokoroConfig`](../../06-api-reference/interfaces/KokoroConfig.md) containing the [`durationPredictorSource`](../../06-api-reference/interfaces/KokoroConfig.md#durationpredictorsource), [`synthesizerSource`](../../06-api-reference/interfaces/KokoroConfig.md#synthesizersource), and [`modelName`](../../06-api-reference/interfaces/KokoroConfig.md#modelname).
 - An optional flag [`preventLoad`](../../06-api-reference/interfaces/TextToSpeechProps.md#preventload) which prevents auto-loading of the model.
 - [`voice`](../../06-api-reference/interfaces/TextToSpeechProps.md#preventload) of type [`VoiceConfig`](../../06-api-reference/interfaces/VoiceConfig.md) - configuration of specific voice used in TTS.
 
@@ -82,16 +82,24 @@ You need more details? Check the following resources:
 
 ## Running the model
 
-The module provides two ways to generate speech:
+The module provides two ways to generate speech using either raw text or pre-generated phonemes:
 
-1.  [**`forward(text, speed)`**](../../06-api-reference/interfaces/TextToSpeechType.md#forward): Generates the complete audio waveform at once. Returns a promise resolving to a `Float32Array`.
+### Using Text
+
+1.  [**`forward({ text, speed })`**](../../06-api-reference/interfaces/TextToSpeechType.md#forward): Generates the complete audio waveform at once. Returns a promise resolving to a `Float32Array`.
+2.  [**`stream({speed, stopAutomatically, onNext, ...})`**](../../06-api-reference/interfaces/TextToSpeechType.md#stream): An async generator-like functionality (managed via callbacks like `onNext`) that yields chunks of audio as they are computed.
+    This is ideal for reducing the "time to first audio" for long sentences. You can also dynamically insert text during the generation process using `streamInsert(text)` and stop it with `streamStop(instant)`.
+
+### Using Phonemes
+
+If you have pre-computed phonemes (e.g., from an external dictionary or a custom G2P model), you can skip the internal phoneme generation step:
+
+1.  [**`forwardFromPhonemes({ phonemes, speed })`**](../../06-api-reference/interfaces/TextToSpeechType.md#forwardfromphonemes): Generates the complete audio waveform from a phoneme string.
+2.  [**`streamFromPhonemes({ phonemes, speed, onNext, ... })`**](../../06-api-reference/interfaces/TextToSpeechType.md#streamfromphonemes): Streams audio chunks generated from a phoneme string.
 
 :::note
-Since it processes the entire text at once, it might take a significant amount of time to produce an audio for long text inputs.
+Since `forward` and `forwardFromPhonemes` process the entire input at once, they might take a significant amount of time to produce audio for long inputs.
 :::
-
-2.  [**`stream({ text, speed })`**](../../06-api-reference/interfaces/TextToSpeechType.md#stream): An async generator that yields chunks of audio as they are computed.
-    This is ideal for reducing the "time to first audio" for long sentences.
 
 ## Example
 
@@ -180,6 +188,48 @@ export default function App() {
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
       <Button title="Stream" onPress={generateStream} disabled={!tts.isReady} />
+    </View>
+  );
+}
+```
+
+### Synthesis from Phonemes
+
+If you already have a phoneme string obtained from an external source (e.g. the Python `phonemizer` library,
+`espeak-ng`, or any custom phonemizer), you can use `forwardFromPhonemes` or `streamFromPhonemes` to synthesize audio directly, skipping the phoneme generation stage.
+
+```tsx
+import React from 'react';
+import { Button, View } from 'react-native';
+import {
+  useTextToSpeech,
+  KOKORO_MEDIUM,
+  KOKORO_VOICE_AF_HEART,
+} from 'react-native-executorch';
+
+export default function App() {
+  const tts = useTextToSpeech({
+    model: KOKORO_MEDIUM,
+    voice: KOKORO_VOICE_AF_HEART,
+  });
+
+  const synthesizePhonemes = async () => {
+    // Example phonemes for "Hello"
+    const audioData = await tts.forwardFromPhonemes({
+      phonemes:
+        'ɐ mˈæn hˌu dˈʌzᵊnt tɹˈʌst hɪmsˈɛlf, kæn nˈɛvəɹ ɹˈiᵊli tɹˈʌst ˈɛniwˌʌn ˈɛls.',
+    });
+
+    // ... process or play audioData ...
+  };
+
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <Button
+        title="Synthesize Phonemes"
+        onPress={synthesizePhonemes}
+        disabled={!tts.isReady}
+      />
     </View>
   );
 }

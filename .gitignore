@@ -88,9 +88,22 @@ lib/
 ios/generated
 android/generated
 apps/*/ios/
+!apps/bare_rn/ios/
 apps/*/android/
+!apps/bare_rn/android/
+
+# generated TypeDoc API reference (regenerated at build time)
+docs/docs/06-api-reference/
+
+# integration test model assets
+packages/react-native-executorch/common/rnexecutorch/tests/integration/assets/models/
 
 # custom
 *.tgz
 Makefile
 *.pte
+
+.agents
+.claude
+skills-lock.json
+

@@ -11,9 +11,42 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTextEmbeddings, ALL_MINILM_L6_V2 } from 'react-native-executorch';
+import { ModelPicker } from '../../components/ModelPicker';
+import {
+  useTextEmbeddings,
+  ALL_MINILM_L6_V2,
+  ALL_MPNET_BASE_V2,
+  MULTI_QA_MINILM_L6_COS_V1,
+  MULTI_QA_MPNET_BASE_DOT_V1,
+  DISTILUSE_BASE_MULTILINGUAL_CASED_V2_8DA4W,
+  DISTILUSE_BASE_MULTILINGUAL_CASED_V2_COREML,
+  PARAPHRASE_MULTILINGUAL_MINILM_L12_V2_QUANTIZED,
+  TextEmbeddingsProps,
+} from 'react-native-executorch';
+
+type TextEmbeddingModel = TextEmbeddingsProps['model'];
+
+const MODELS: { label: string; value: TextEmbeddingModel }[] = [
+  { label: 'MiniLM L6', value: ALL_MINILM_L6_V2 },
+  { label: 'MPNet Base', value: ALL_MPNET_BASE_V2 },
+  { label: 'MultiQA MiniLM', value: MULTI_QA_MINILM_L6_COS_V1 },
+  { label: 'MultiQA MPNet', value: MULTI_QA_MPNET_BASE_DOT_V1 },
+  {
+    label: 'Multilingual DistilUSE (8da4w)',
+    value: DISTILUSE_BASE_MULTILINGUAL_CASED_V2_8DA4W,
+  },
+  {
+    label: 'Multilingual DistilUSE (CoreML)',
+    value: DISTILUSE_BASE_MULTILINGUAL_CASED_V2_COREML,
+  },
+  {
+    label: 'Multilingual Paraphrase (8da4w)',
+    value: PARAPHRASE_MULTILINGUAL_MINILM_L12_V2_QUANTIZED,
+  },
+];
 import { useIsFocused } from '@react-navigation/native';
 import { dotProduct } from '../../utils/math';
+import ErrorBanner from '../../components/ErrorBanner';
 
 export default function TextEmbeddingsScreenWrapper() {
   const isFocused = useIsFocused();
@@ -22,7 +55,10 @@ export default function TextEmbeddingsScreenWrapper() {
 }
 
 function TextEmbeddingsScreen() {
-  const model = useTextEmbeddings({ model: ALL_MINILM_L6_V2 });
+  const [selectedModel, setSelectedModel] =
+    useState<TextEmbeddingModel>(ALL_MINILM_L6_V2);
+  const model = useTextEmbeddings({ model: selectedModel });
+  const [error, setError] = useState<string | null>(null);
 
   const [inputSentence, setInputSentence] = useState('');
   const [sentencesWithEmbeddings, setSentencesWithEmbeddings] = useState<
@@ -31,6 +67,7 @@ function TextEmbeddingsScreen() {
   const [topMatches, setTopMatches] = useState<
     { sentence: string; similarity: number }[]
   >([]);
+  const [embeddingTime, setEmbeddingTime] = useState<number | null>(null);
 
   useEffect(
     () => {
@@ -51,8 +88,8 @@ function TextEmbeddingsScreen() {
           }
 
           setSentencesWithEmbeddings(embeddings);
-        } catch (error) {
-          console.error('Error generating embeddings:', error);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
         }
       };
 
@@ -66,7 +103,9 @@ function TextEmbeddingsScreen() {
     if (!model.isReady || !inputSentence.trim()) return;
 
     try {
+      const start = Date.now();
       const inputEmbedding = await model.forward(inputSentence);
+      setEmbeddingTime(Date.now() - start);
       const matches = sentencesWithEmbeddings.map(
         ({ sentence, embedding }) => ({
           sentence,
@@ -75,8 +114,8 @@ function TextEmbeddingsScreen() {
       );
       matches.sort((a, b) => b.similarity - a.similarity);
       setTopMatches(matches.slice(0, 3));
-    } catch (error) {
-      console.error('Error generating embedding:', error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -84,13 +123,15 @@ function TextEmbeddingsScreen() {
     if (!model.isReady || !inputSentence.trim()) return;
 
     try {
+      const start = Date.now();
       const embedding = await model.forward(inputSentence);
+      setEmbeddingTime(Date.now() - start);
       setSentencesWithEmbeddings((prev) => [
         ...prev,
         { sentence: inputSentence, embedding },
       ]);
-    } catch (error) {
-      console.error('Error generating embedding:', error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
 
     setInputSentence('');
@@ -101,8 +142,8 @@ function TextEmbeddingsScreen() {
     if (!model.isReady) return;
     try {
       setSentencesWithEmbeddings([]);
-    } catch (error) {
-      console.error('Error clearing the list:', error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -125,6 +166,16 @@ function TextEmbeddingsScreen() {
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           <Text style={styles.heading}>Text Embeddings Playground</Text>
           <Text style={styles.sectionTitle}>{getModelStatusText()}</Text>
+          <ModelPicker
+            models={MODELS}
+            selectedModel={selectedModel}
+            onSelect={(m) => {
+              setSelectedModel(m);
+              setSentencesWithEmbeddings([]);
+              setTopMatches([]);
+            }}
+          />
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>List of Existing Sentences</Text>
@@ -217,6 +268,11 @@ function TextEmbeddingsScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+            {embeddingTime !== null && (
+              <Text style={styles.statsText}>
+                Embedding time: {embeddingTime} ms
+              </Text>
+            )}
             {topMatches.length > 0 && (
               <View style={styles.topMatchesContainer}>
                 <Text style={styles.sectionTitle}>Top Matches</Text>
@@ -328,6 +384,12 @@ const styles = StyleSheet.create({
   },
   topMatchesContainer: {
     marginTop: 20,
+  },
+  statsText: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 8,
+    textAlign: 'center',
   },
   flexContainer: {
     flex: 1,

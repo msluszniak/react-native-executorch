@@ -1,11 +1,10 @@
 import { symbols } from '../constants/ocr/symbols';
 import { RnExecutorchError } from '../errors/errorUtils';
-import { ResourceSource } from './common';
+import { Frame, PixelData, ResourceSource } from './common';
 
 /**
  * OCRDetection represents a single detected text instance in an image,
  * including its bounding box, recognized text, and confidence score.
- *
  * @category Types
  * @property {Point[]} bbox - An array of points defining the bounding box around the detected text.
  * @property {string} text - The recognized text within the bounding box.
@@ -19,7 +18,6 @@ export interface OCRDetection {
 
 /**
  * Point represents a coordinate in 2D space.
- *
  * @category Types
  * @property {number} x - The x-coordinate of the point.
  * @property {number} y - The y-coordinate of the point.
@@ -31,7 +29,6 @@ export interface Point {
 
 /**
  * Configuration properties for the `useOCR` hook.
- *
  * @category Types
  */
 export interface OCRProps {
@@ -39,6 +36,12 @@ export interface OCRProps {
    * Object containing the necessary model sources and configuration for the OCR pipeline.
    */
   model: {
+    /**
+     * The built-in model name, e.g. `'ocr-en'`. Used for telemetry and hook reload triggers.
+     * Pass one of the pre-built OCR constants (e.g. `OCR_ENGLISH`) to populate all required fields.
+     */
+    modelName: OCRModelName;
+
     /**
      * `ResourceSource` that specifies the location of the text detector model binary.
      */
@@ -64,7 +67,6 @@ export interface OCRProps {
 
 /**
  * Configuration properties for the `useVerticalOCR` hook.
- *
  * @category Types
  */
 export interface VerticalOCRProps extends OCRProps {
@@ -78,7 +80,6 @@ export interface VerticalOCRProps extends OCRProps {
 /**
  * Return type for the `useOCR` hook.
  * Manages the state and operations for Optical Character Recognition (OCR).
- *
  * @category Types
  */
 export interface OCRType {
@@ -104,16 +105,45 @@ export interface OCRType {
 
   /**
    * Executes the OCR pipeline (detection and recognition) on the provided image.
-   * @param imageSource - A string representing the image source (e.g., a file path, URI, or base64 string) to be processed.
-   * @returns A Promise that resolves to the OCR results (typically containing the recognized text strings and their bounding boxes).
+   *
+   * Supports two input types:
+   * 1. **String path/URI**: File path, URL, or Base64-encoded string
+   * 2. **PixelData**: Raw pixel data from image libraries (e.g., NitroImage)
+   *
+   * **Note**: For VisionCamera frame processing, use `runOnFrame` instead.
+   * @param input - Image source (string or PixelData object)
+   * @returns A Promise that resolves to the OCR results (recognized text and bounding boxes).
    * @throws {RnExecutorchError} If the models are not loaded or are currently processing another image.
    */
-  forward: (imageSource: string) => Promise<OCRDetection[]>;
+  forward: (input: string | PixelData) => Promise<OCRDetection[]>;
+
+  /**
+   * Synchronous worklet function for VisionCamera frame processing.
+   * Automatically handles native buffer extraction and cleanup.
+   *
+   * **Use this for VisionCamera frame processing in worklets.**
+   * For async processing, use `forward()` instead.
+   *
+   * **Note**: OCR is a two-stage pipeline (detection + recognition) and may not
+   * achieve real-time frame rates. Frames may be dropped if inference is still running.
+   *
+   * Available after model is loaded (`isReady: true`).
+   * @param frame - VisionCamera Frame object
+   * @param isFrontCamera - Whether the front camera is active, used for mirroring corrections.
+   * @returns Array of OCRDetection results for the frame.
+   */
+  runOnFrame: ((frame: Frame, isFrontCamera: boolean) => OCRDetection[]) | null;
 }
 
 /**
  * Enumeration of supported OCR languages based on available symbol sets.
- *
  * @category Types
  */
 export type OCRLanguage = keyof typeof symbols;
+
+/**
+ * Union of all built-in OCR model names.
+ * Each name is derived from the language code, e.g. `'ocr-en'`, `'ocr-ja'`.
+ * @category Types
+ */
+export type OCRModelName = `ocr-${OCRLanguage}`;

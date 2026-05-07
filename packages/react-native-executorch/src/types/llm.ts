@@ -2,12 +2,77 @@ import { RnExecutorchError } from '../errors/errorUtils';
 import { ResourceSource } from './common';
 
 /**
+ * Capabilities a multimodal LLM can have.
+ * @category Types
+ */
+export type LLMCapability = 'vision';
+
+/**
+ * Derives the media argument shape for `sendMessage` from a capabilities tuple.
+ * @category Types
+ */
+export type MediaArg<C extends readonly LLMCapability[]> =
+  'vision' extends C[number] ? { imagePath?: string } : object;
+
+/**
+ * Union of all built-in LLM model names.
+ * @category Types
+ */
+export type LLMModelName =
+  | 'llama-3.2-3b'
+  | 'llama-3.2-3b-qlora'
+  | 'llama-3.2-3b-spinquant'
+  | 'llama-3.2-1b'
+  | 'llama-3.2-1b-qlora'
+  | 'llama-3.2-1b-spinquant'
+  | 'qwen3-0.6b'
+  | 'qwen3-0.6b-quantized'
+  | 'qwen3-1.7b'
+  | 'qwen3-1.7b-quantized'
+  | 'qwen3-4b'
+  | 'qwen3-4b-quantized'
+  | 'hammer2.1-0.5b'
+  | 'hammer2.1-0.5b-quantized'
+  | 'hammer2.1-1.5b'
+  | 'hammer2.1-1.5b-quantized'
+  | 'hammer2.1-3b'
+  | 'hammer2.1-3b-quantized'
+  | 'smollm2.1-135m'
+  | 'smollm2.1-135m-quantized'
+  | 'smollm2.1-360m'
+  | 'smollm2.1-360m-quantized'
+  | 'smollm2.1-1.7b'
+  | 'smollm2.1-1.7b-quantized'
+  | 'qwen2.5-0.5b'
+  | 'qwen2.5-0.5b-quantized'
+  | 'qwen2.5-1.5b'
+  | 'qwen2.5-1.5b-quantized'
+  | 'qwen2.5-3b'
+  | 'qwen2.5-3b-quantized'
+  | 'phi-4-mini-4b'
+  | 'phi-4-mini-4b-quantized'
+  | 'lfm2.5-350m'
+  | 'lfm2.5-350m-quantized'
+  | 'lfm2.5-1.2b-instruct'
+  | 'lfm2.5-1.2b-instruct-quantized'
+  | 'lfm2.5-vl-1.6b-quantized'
+  | 'lfm2.5-vl-450m-quantized'
+  | 'qwen3.5-0.8b-quantized'
+  | 'qwen3.5-2b-quantized'
+  | 'bielik-v3.0-1.5b'
+  | 'bielik-v3.0-1.5b-quantized';
+
+/**
  * Properties for initializing and configuring a Large Language Model (LLM) instance.
- *
  * @category Types
  */
 export interface LLMProps {
   model: {
+    /**
+     * The built-in model name (e.g. `'llama-3.2-3b'`). Used for telemetry and hook reload triggers.
+     * Pass one of the pre-built LLM constants (e.g. `LLAMA3_2_3B`) to populate all required fields.
+     */
+    modelName: LLMModelName;
     /**
      * `ResourceSource` that specifies the location of the model binary.
      */
@@ -19,7 +84,20 @@ export interface LLMProps {
     /**
      * `ResourceSource` pointing to the JSON file which contains the tokenizer config.
      */
-    tokenizerConfigSource?: ResourceSource;
+    tokenizerConfigSource: ResourceSource;
+    /**
+     * Optional list of modality capabilities the model supports.
+     * Determines the type of the `media` argument in `sendMessage`.
+     * Example: `['vision']` enables `sendMessage(text, { imagePath })`.
+     */
+    capabilities?: readonly LLMCapability[];
+    /**
+     * Recommended default generation settings, typically copied from the
+     * upstream `generation_config.json` or the model card. Applied automatically
+     * after the native module loads and before any user `configure()` call,
+     * so callers only need to override the values they want to change.
+     */
+    generationConfig?: GenerationConfig;
   };
   /**
    * Boolean that can prevent automatic model loading (and downloading the data if you load it for the first time) after running the hook.
@@ -28,11 +106,10 @@ export interface LLMProps {
 }
 
 /**
- * React hook for managing a Large Language Model (LLM) instance.
- *
+ * Base return type for `useLLM`. Contains all fields except `sendMessage`.
  * @category Types
  */
-export interface LLMType {
+export interface LLMTypeBase {
   /**
    * History containing all messages in conversation. This field is updated after model responds to sendMessage.
    */
@@ -71,50 +148,36 @@ export interface LLMType {
   /**
    * Configures chat and tool calling.
    * See [Configuring the model](https://docs.swmansion.com/react-native-executorch/docs/hooks/natural-language-processing/useLLM#configuring-the-model) for details.
-   *
    * @param {LLMConfig} configuration - Configuration object containing `chatConfig`, `toolsConfig`, and `generationConfig`.
    */
   configure: ({ chatConfig, toolsConfig, generationConfig }: LLMConfig) => void;
 
   /**
    * Returns the number of tokens generated so far in the current generation.
-   *
    * @returns The count of generated tokens.
    */
   getGeneratedTokenCount: () => number;
   /**
    * Runs model to complete chat passed in `messages` argument. It doesn't manage conversation context.
-   *
-   * @param messages - Array of messages representing the chat history.
+   * For multimodal models, set `mediaPath` on user messages to include images.
+   * @param messages - Array of messages representing the chat history. User messages may include a `mediaPath` field with a local image path.
    * @param tools - Optional array of tools that can be used during generation.
    * @returns The generated tokens as `string`.
    */
   generate: (messages: Message[], tools?: LLMTool[]) => Promise<string>;
   /**
-   * Returns the number of total tokens from the previous generation.This is a sum of prompt tokens and generated tokens.
-   *
+   * Returns the number of total tokens from the previous generation. This is a sum of prompt tokens and generated tokens.
    * @returns The count of prompt and generated tokens.
    */
   getTotalTokenCount: () => number;
   /**
    * Returns the number of prompt tokens in the last message.
-   *
    * @returns The count of prompt token.
    */
   getPromptTokenCount: () => number;
 
   /**
-   * Function to add user message to conversation.
-   * After model responds, `messageHistory` will be updated with both user message and model response.
-   *
-   * @param message - The message string to send.
-   * @returns The model's response as a `string`.
-   */
-  sendMessage: (message: string) => Promise<string>;
-
-  /**
    * Deletes all messages starting with message on `index` position. After deletion `messageHistory` will be updated.
-   *
    * @param index - The index of the message to delete from history.
    */
   deleteMessage: (index: number) => void;
@@ -126,8 +189,41 @@ export interface LLMType {
 }
 
 /**
+ * Return type for `useLLM` when `model.capabilities` is provided.
+ * `sendMessage` accepts a typed `media` object based on declared capabilities.
+ * @category Types
+ */
+export interface LLMTypeMultimodal<
+  C extends readonly LLMCapability[] = readonly LLMCapability[],
+> extends LLMTypeBase {
+  /**
+   * Function to add user message to conversation.
+   * Pass a `media` object whose shape is determined by the declared capabilities.
+   * After model responds, `messageHistory` will be updated.
+   * @param message - The message string to send.
+   * @param media - Optional media object (e.g. `{ imagePath }` for vision.
+   * @returns The model's response as a `string`.
+   */
+  sendMessage: (message: string, media?: MediaArg<C>) => Promise<string>;
+}
+
+/**
+ * Return type for `useLLM` when `model.capabilities` is absent or does not include `'vision'`.
+ * `sendMessage` accepts only text.
+ * @category Types
+ */
+export interface LLMType extends LLMTypeBase {
+  /**
+   * Function to add user message to conversation.
+   * After model responds, `messageHistory` will be updated.
+   * @param message - The message string to send.
+   * @returns The model's response as a `string`.
+   */
+  sendMessage: (message: string) => Promise<string>;
+}
+
+/**
  * Configuration object for initializing and customizing a Large Language Model (LLM) instance.
- *
  * @category Types
  */
 export interface LLMConfig {
@@ -163,20 +259,22 @@ export interface LLMConfig {
    * `temperature` - Scales output logits by the inverse of temperature. Controls the randomness / creativity of text generation.
    *
    * `topp` - Only samples from the smallest set of tokens whose cumulative probability exceeds topp.
+   *
+   * `minP` - Minimum probability threshold: tokens with prob < minP * max_prob are excluded. 0 disables filtering.
+   *
+   * `repetitionPenalty` - Multiplicative penalty applied to logits of recently generated tokens. Values > 1 discourage repetition. 1 disables the penalty.
    */
   generationConfig?: GenerationConfig;
 }
 
 /**
  * Roles that a message sender can have.
- *
  * @category Types
  */
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 /**
  * Represents a message in the conversation.
- *
  * @category Types
  * @property {MessageRole} role - Role of the message sender of type `MessageRole`.
  * @property {string} content - Content of the message.
@@ -184,14 +282,20 @@ export type MessageRole = 'user' | 'assistant' | 'system';
 export interface Message {
   role: MessageRole;
   content: string;
+  /**
+   * Optional local file path to media (image, audio, etc.).
+   * Only valid on `user` messages.
+   * Either `file:///absolute/path` or `/absolute/path` is accepted; the
+   * controller normalizes the path before passing it to native code.
+   */
+  mediaPath?: string;
 }
 
 /**
  * Represents a tool call made by the model.
- *
  * @category Types
  * @property {string} toolName - The name of the tool being called.
- * @property {Object} arguments - The arguments passed to the tool.
+ * @property {object} arguments - The arguments passed to the tool.
  */
 export interface ToolCall {
   toolName: string;
@@ -202,14 +306,12 @@ export interface ToolCall {
  * Represents a tool that can be used by the model.
  * Usually tool is represented with dictionary (Object), but fields depend on the model.
  * Unfortunately there's no one standard so it's hard to type it better.
- *
  * @category Types
  */
 export type LLMTool = Object;
 
 /**
  * Object configuring chat management.
- *
  * @category Types
  * @property {Message[]} initialMessageHistory - An array of `Message` objects that represent the conversation history. This can be used to provide initial context to the model.
  * @property {string} systemPrompt - Often used to tell the model what is its purpose, for example - "Be a helpful translator".
@@ -223,7 +325,6 @@ export interface ChatConfig {
 
 /**
  * Object configuring options for enabling and managing tool use. **It will only have effect if your model's chat template support it**.
- *
  * @category Types
  * @property {LLMTool[]} tools - List of objects defining tools.
  * @property {(call: ToolCall) => Promise<string | null>} executeToolCallback - Function that accepts `ToolCall`, executes tool and returns the string to model.
@@ -237,29 +338,34 @@ export interface ToolsConfig {
 
 /**
  * Object configuring generation settings.
- *
  * @category Types
  * @property {number} [temperature] - Scales output logits by the inverse of temperature. Controls the randomness / creativity of text generation.
- * @property {number} [topp] - Only samples from the smallest set of tokens whose cumulative probability exceeds topp.
+ * @property {number} [topP] - Only samples from the smallest set of tokens whose cumulative probability exceeds topP.
+ * @property {number} [topp] - **Deprecated.** Use `topP` instead.
+ * @property {number} [minP] - Minimum probability threshold: tokens with prob < minP * max_prob are excluded. 0 disables filtering.
+ * @property {number} [repetitionPenalty] - Multiplicative penalty applied to logits of recently generated tokens. Values > 1 discourage repetition. 1 disables the penalty.
  * @property {number} [outputTokenBatchSize] - Soft upper limit on the number of tokens in each token batch (in certain cases there can be more tokens in given batch, i.e. when the batch would end with special emoji join character).
  * @property {number} [batchTimeInterval] - Upper limit on the time interval between consecutive token batches.
  */
 export interface GenerationConfig {
   temperature?: number;
+  topP?: number;
+  /** @deprecated Use `topP` instead. */
   topp?: number;
+  minP?: number;
+  repetitionPenalty?: number;
   outputTokenBatchSize?: number;
   batchTimeInterval?: number;
 }
 
 /**
  * Defines a strategy for managing the conversation context window and message history.
- *
  * @category Types
  */
 export interface ContextStrategy {
   /**
    * Constructs the final array of messages to be sent to the model for the current inference step.
-   * * @param systemPrompt - The top-level instructions or persona assigned to the model.
+   * @param systemPrompt - The top-level instructions or persona assigned to the model.
    * @param history - The complete conversation history up to the current point.
    * @param maxContextLength - The maximum number of tokens that the model can keep in the context.
    * @param getTokenCount - A callback function provided by the LLM controller that calculates the exact number of tokens a specific array of messages will consume once formatted.
@@ -275,7 +381,6 @@ export interface ContextStrategy {
 
 /**
  * Special tokens used in Large Language Models (LLMs).
- *
  * @category Types
  */
 export const SPECIAL_TOKENS = {

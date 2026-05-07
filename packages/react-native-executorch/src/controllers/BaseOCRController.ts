@@ -2,7 +2,8 @@ import { Logger } from '../common/Logger';
 import { symbols } from '../constants/ocr/symbols';
 import { RnExecutorchErrorCode } from '../errors/ErrorCodes';
 import { RnExecutorchError, parseUnknownError } from '../errors/errorUtils';
-import { ResourceSource } from '../types/common';
+import { isPixelData } from '../modules/computer_vision/VisionModule';
+import { Frame, PixelData, ResourceSource } from '../types/common';
 import { OCRLanguage, OCRDetection } from '../types/ocr';
 import { ResourceFetcher } from '../utils/ResourceFetcher';
 
@@ -30,7 +31,7 @@ export abstract class BaseOCRController {
     recognizerPath: string,
     language: OCRLanguage,
     extraParams?: any
-  ): any;
+  ): Promise<any>;
 
   protected internalLoad = async (
     detectorSource: ResourceSource,
@@ -63,7 +64,7 @@ export abstract class BaseOCRController {
           'The download has been interrupted. As a result, not every file was downloaded. Please retry the download.'
         );
       }
-      this.nativeModule = this.loadNativeModule(
+      this.nativeModule = await this.loadNativeModule(
         paths[0]!,
         paths[1]!,
         language,
@@ -87,7 +88,41 @@ export abstract class BaseOCRController {
     }
   };
 
-  public forward = async (imageSource: string): Promise<OCRDetection[]> => {
+  get runOnFrame():
+    | ((frame: Frame, isFrontCamera: boolean) => OCRDetection[])
+    | null {
+    if (!this.isReady) {
+      throw new RnExecutorchError(
+        RnExecutorchErrorCode.ModuleNotLoaded,
+        'The model is currently not loaded. Please load the model before calling runOnFrame().'
+      );
+    }
+
+    const nativeGenerateFromFrame = this.nativeModule.generateFromFrame;
+
+    return (frame: Frame, isFrontCamera: boolean): OCRDetection[] => {
+      'worklet';
+
+      let nativeBuffer: { pointer: bigint; release(): void } | null = null;
+      try {
+        nativeBuffer = frame.getNativeBuffer();
+        const frameData = {
+          nativeBuffer: nativeBuffer.pointer,
+          orientation: frame.orientation,
+          isMirrored: isFrontCamera,
+        };
+        return nativeGenerateFromFrame(frameData);
+      } finally {
+        if (nativeBuffer?.release) {
+          nativeBuffer.release();
+        }
+      }
+    };
+  }
+
+  public forward = async (
+    input: string | PixelData
+  ): Promise<OCRDetection[]> => {
     if (!this.isReady) {
       throw new RnExecutorchError(
         RnExecutorchErrorCode.ModuleNotLoaded,
@@ -104,7 +139,17 @@ export abstract class BaseOCRController {
     try {
       this.isGenerating = true;
       this.isGeneratingCallback(this.isGenerating);
-      return await this.nativeModule.generate(imageSource);
+
+      if (typeof input === 'string') {
+        return await this.nativeModule.generateFromString(input);
+      } else if (isPixelData(input)) {
+        return await this.nativeModule.generateFromPixels(input);
+      } else {
+        throw new RnExecutorchError(
+          RnExecutorchErrorCode.InvalidArgument,
+          'Invalid input: expected string path or PixelData object. For VisionCamera frames, use runOnFrame instead.'
+        );
+      }
     } catch (e) {
       throw parseUnknownError(e);
     } finally {

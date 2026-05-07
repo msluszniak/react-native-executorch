@@ -5,6 +5,7 @@ import { DEFAULT_CHAT_CONFIG } from '../constants/llmDefaults';
 import {
   ChatConfig,
   GenerationConfig,
+  LLMCapability,
   LLMTool,
   Message,
   SPECIAL_TOKENS,
@@ -24,7 +25,6 @@ export class LLMController {
   private _isReady = false;
   private _isGenerating = false;
   private _messageHistory: Message[] = [];
-
   // User callbacks
   private tokenCallback: (token: string) => void;
   private messageHistoryCallback: (messageHistory: Message[]) => void;
@@ -75,11 +75,15 @@ export class LLMController {
     modelSource,
     tokenizerSource,
     tokenizerConfigSource,
+    capabilities,
+    defaultGenerationConfig,
     onDownloadProgressCallback,
   }: {
     modelSource: ResourceSource;
     tokenizerSource: ResourceSource;
     tokenizerConfigSource: ResourceSource;
+    capabilities?: readonly LLMCapability[];
+    defaultGenerationConfig?: GenerationConfig;
     onDownloadProgressCallback?: (downloadProgress: number) => void;
   }) {
     // reset inner state when loading new model
@@ -118,7 +122,22 @@ export class LLMController {
       this.tokenizerConfig = JSON.parse(
         await ResourceFetcher.fs.readAsString(tokenizerConfigPath!)
       );
-      this.nativeModule = global.loadLLM(modelPath, tokenizerPath);
+
+      if (this.nativeModule) {
+        this.nativeModule.unload();
+      }
+
+      this.nativeModule = await global.loadLLM(
+        modelPath,
+        tokenizerPath,
+        capabilities ?? []
+      );
+      if (defaultGenerationConfig) {
+        // Apply model-specific recommended sampling defaults before flipping
+        // isReady so callers that react to it see the right config on first
+        // send. User-provided `configure()` calls still override these.
+        this.applyGenerationConfig(defaultGenerationConfig);
+      }
       this.isReadyCallback(true);
       this.onToken = (data: string) => {
         if (!data) {
@@ -155,28 +174,69 @@ export class LLMController {
     this.chatConfig = { ...DEFAULT_CHAT_CONFIG, ...chatConfig };
     this.toolsConfig = toolsConfig;
 
-    if (generationConfig?.outputTokenBatchSize) {
-      this.nativeModule.setCountInterval(generationConfig.outputTokenBatchSize);
-    }
-    if (generationConfig?.batchTimeInterval) {
-      this.nativeModule.setTimeInterval(generationConfig.batchTimeInterval);
-    }
-    if (generationConfig?.temperature) {
-      this.nativeModule.setTemperature(generationConfig.temperature);
-    }
-    if (generationConfig?.topp) {
-      if (generationConfig.topp < 0 || generationConfig.topp > 1) {
-        throw new RnExecutorchError(
-          RnExecutorchErrorCode.InvalidConfig,
-          'Top P has to be in range [0, 1]'
-        );
-      }
-      this.nativeModule.setTopp(generationConfig.topp);
+    if (generationConfig) {
+      this.applyGenerationConfig(generationConfig);
     }
 
     // reset inner state when loading new configuration
     this.messageHistoryCallback(this.chatConfig.initialMessageHistory);
     this.isGeneratingCallback(false);
+  }
+
+  private applyGenerationConfig(generationConfig: GenerationConfig) {
+    if (generationConfig.outputTokenBatchSize) {
+      this.nativeModule.setCountInterval(generationConfig.outputTokenBatchSize);
+    }
+    if (generationConfig.batchTimeInterval) {
+      this.nativeModule.setTimeInterval(generationConfig.batchTimeInterval);
+    }
+    if (generationConfig.temperature !== undefined) {
+      this.nativeModule.setTemperature(generationConfig.temperature);
+    }
+    // `topp` is the legacy spelling kept for backwards compatibility — `topP`
+    // wins when both are set so callers migrating to the new name don't get
+    // surprised by stale values. Reading the deprecated alias is intentional.
+    const topP = generationConfig.topP ?? generationConfig.topp;
+    if (topP !== undefined) {
+      if (topP < 0 || topP > 1) {
+        throw new RnExecutorchError(
+          RnExecutorchErrorCode.InvalidConfig,
+          'Top P has to be in range [0, 1]'
+        );
+      }
+      this.nativeModule.setTopp(topP);
+    }
+    if (generationConfig.minP !== undefined) {
+      if (generationConfig.minP < 0 || generationConfig.minP > 1) {
+        throw new RnExecutorchError(
+          RnExecutorchErrorCode.InvalidConfig,
+          'Min P has to be in range [0, 1]'
+        );
+      }
+      this.nativeModule.setMinP(generationConfig.minP);
+    }
+    if (generationConfig.repetitionPenalty !== undefined) {
+      if (generationConfig.repetitionPenalty < 0) {
+        throw new RnExecutorchError(
+          RnExecutorchErrorCode.InvalidConfig,
+          'Repetition penalty must be non-negative'
+        );
+      }
+      this.nativeModule.setRepetitionPenalty(
+        generationConfig.repetitionPenalty
+      );
+    }
+  }
+
+  private getImageToken(): string {
+    const token = this.tokenizerConfig.image_token;
+    if (!token) {
+      throw new RnExecutorchError(
+        RnExecutorchErrorCode.InvalidConfig,
+        "Tokenizer config is missing 'image_token'. Vision models require tokenizerConfigSource with an 'image_token' field."
+      );
+    }
+    return token;
   }
 
   private filterSpecialTokens(text: string): string {
@@ -212,7 +272,7 @@ export class LLMController {
     this.isGeneratingCallback(false);
   }
 
-  public async forward(input: string): Promise<string> {
+  public async forward(input: string, imagePaths?: string[]): Promise<string> {
     if (!this._isReady) {
       throw new RnExecutorchError(
         RnExecutorchErrorCode.ModuleNotLoaded,
@@ -228,7 +288,15 @@ export class LLMController {
     try {
       this.isGeneratingCallback(true);
       this.nativeModule.reset();
-      const response = await this.nativeModule.generate(input, this.onToken);
+      const response =
+        imagePaths && imagePaths.length > 0
+          ? await this.nativeModule.generateMultimodal(
+              input,
+              imagePaths.map(normalizeImagePath),
+              this.getImageToken(),
+              this.onToken
+            )
+          : await this.nativeModule.generate(input, this.onToken);
       return this.filterSpecialTokens(response);
     } catch (e) {
       throw parseUnknownError(e);
@@ -293,6 +361,10 @@ export class LLMController {
       );
     }
 
+    const imagePaths = messages
+      .filter((m) => m.mediaPath)
+      .map((m) => m.mediaPath!);
+
     const renderedChat: string = this.applyChatTemplate(
       messages,
       this.tokenizerConfig,
@@ -301,16 +373,26 @@ export class LLMController {
       { tools_in_user_message: false, add_generation_prompt: true }
     );
 
-    return await this.forward(renderedChat);
+    return await this.forward(
+      renderedChat,
+      imagePaths.length > 0 ? imagePaths : undefined
+    );
   }
 
-  public async sendMessage(message: string): Promise<string> {
-    const updatedHistory = [
-      ...this._messageHistory,
-      { content: message, role: 'user' as const },
-    ];
+  public async sendMessage(
+    message: string,
+    media?: { imagePath?: string }
+  ): Promise<string> {
+    const mediaPath = media?.imagePath;
+    const newMessage: Message = {
+      content: message,
+      role: 'user',
+      ...(mediaPath ? { mediaPath } : {}),
+    };
+    const updatedHistory = [...this._messageHistory, newMessage];
     this.messageHistoryCallback(updatedHistory);
 
+    const visualTokenCount = this.nativeModule.getVisualTokenCount();
     const countTokensCallback = (messages: Message[]) => {
       const rendered = this.applyChatTemplate(
         messages,
@@ -319,7 +401,9 @@ export class LLMController {
         // eslint-disable-next-line camelcase
         { tools_in_user_message: false, add_generation_prompt: true }
       );
-      return this.nativeModule.countTextTokens(rendered);
+      const textTokens = this.nativeModule.countTextTokens(rendered);
+      const imageCount = messages.filter((m) => m.mediaPath).length;
+      return textTokens + imageCount * (visualTokenCount - 1);
     };
     const maxContextLength = this.nativeModule.getMaxContextLength();
     const messageHistoryWithPrompt =
@@ -341,24 +425,23 @@ export class LLMController {
         { content: response, role: 'assistant' },
       ]);
     }
-    if (!this.toolsConfig) {
-      return response;
+
+    if (this.toolsConfig) {
+      const toolCalls = parseToolCall(response);
+      for (const toolCall of toolCalls) {
+        this.toolsConfig
+          .executeToolCallback(toolCall)
+          .then((toolResponse: string | null) => {
+            if (toolResponse) {
+              this.messageHistoryCallback([
+                ...this._messageHistory,
+                { content: toolResponse, role: 'assistant' },
+              ]);
+            }
+          });
+      }
     }
 
-    const toolCalls = parseToolCall(response);
-
-    for (const toolCall of toolCalls) {
-      this.toolsConfig
-        .executeToolCallback(toolCall)
-        .then((toolResponse: string | null) => {
-          if (toolResponse) {
-            this.messageHistoryCallback([
-              ...this._messageHistory,
-              { content: toolResponse, role: 'assistant' },
-            ]);
-          }
-        });
-    }
     return response;
   }
 
@@ -391,11 +474,44 @@ export class LLMController {
     );
 
     const result = template.render({
-      messages,
+      messages: messagesForChatTemplate(messages),
       tools,
       ...templateFlags,
       ...specialTokens,
     });
     return result;
   }
+}
+
+/**
+ * The native multimodal pipeline expects image paths to be `file://` URIs.
+ * `ResourceFetcher.fetch` and most platform file APIs return raw filesystem
+ * paths without that prefix, so callers routinely pass either form. Accept
+ * both and normalize to the prefixed form here.
+ * @param path - Local image path, either with or without the `file://` prefix.
+ * @returns The same path with a `file://` prefix.
+ */
+function normalizeImagePath(path: string): string {
+  return path.startsWith('file://') ? path : `file://${path}`;
+}
+
+/**
+ * Multimodal chat templates expect message content for image-bearing turns
+ * to be an array of content parts with an `image` part as a placeholder.
+ * Callers of `LLMController.generate` and `LLMController.sendMessage` pass
+ * messages with a plain string `content` plus an optional `mediaPath`; this
+ * helper rewrites them into the structured form that the template engine
+ * understands.
+ * @param messages - Messages to prepare for the chat template engine.
+ * @returns Messages with image-bearing turns rewritten to structured content.
+ */
+function messagesForChatTemplate(messages: Message[]): any[] {
+  return messages.map((m) =>
+    m.mediaPath && typeof m.content === 'string'
+      ? {
+          ...m,
+          content: [{ type: 'image' }, { type: 'text', text: m.content }],
+        }
+      : m
+  );
 }
