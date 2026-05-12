@@ -131,6 +131,10 @@ export enum RnExecutorchErrorCode {
    */
   EndOfMethod = 3,
   /**
+   * Status indicating a resource has already been loaded.
+   */
+  AlreadyLoaded = 4,
+  /**
    * Operation is not supported in the current context.
    */
   NotSupported = 16,

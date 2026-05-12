@@ -148,6 +148,10 @@ export const errorDefinitions = {
    * Status indicating there are no more steps of execution to run
    */
   EndOfMethod: 0x03,
+  /**
+   * Status indicating a resource has already been loaded.
+   */
+  AlreadyLoaded: 0x04,
 
   // Logical errors (0x10–0x1f)
   /**
