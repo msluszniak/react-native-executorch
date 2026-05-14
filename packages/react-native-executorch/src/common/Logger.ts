@@ -1,6 +1,7 @@
 /**
  * High level wrapper that prefixes `console.<command>` with [React Native ExecuTorch] tag.
  */
+// phase-4 test marker
 /* eslint-disable no-console */
 export class Logger {
   private static readonly PREFIX = '[React Native ExecuTorch]';
