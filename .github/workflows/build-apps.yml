@@ -15,7 +15,7 @@ on:
 
 jobs:
   detect-changes:
-    if: github.repository == 'software-mansion/react-native-executorch' && github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     outputs:
       android_apps: ${{ steps.matrix.outputs.android_apps }}
